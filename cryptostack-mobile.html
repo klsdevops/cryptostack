@@ -2850,11 +2850,19 @@ select.input-field{appearance:none;cursor:pointer;}
           </div>
           <span class="admin-menu-arrow">›</span>
         </div>
-        <div class="admin-menu-item" onclick="showModal('user-modal')">
+        <div class="admin-menu-item" onclick="openUserModal()">
           <div class="admin-menu-icon" style="background:var(--amber-dim);">👥</div>
           <div class="admin-menu-text">
             <div class="admin-menu-title">User Management</div>
-            <div class="admin-menu-sub">Manage user accounts · RLS policies</div>
+            <div id="admin-user-sub" class="admin-menu-sub">Manage user accounts · RLS policies</div>
+          </div>
+          <span class="admin-menu-arrow">›</span>
+        </div>
+        <div class="admin-menu-item" onclick="showModal('admin-security-modal');clearAdminSecurityForm()">
+          <div class="admin-menu-icon" style="background:rgba(255,179,71,0.12);">🔐</div>
+          <div class="admin-menu-text">
+            <div class="admin-menu-title">Admin Security</div>
+            <div class="admin-menu-sub">Change password &amp; 2FA login code</div>
           </div>
           <span class="admin-menu-arrow">›</span>
         </div>
@@ -2998,20 +3006,91 @@ select.input-field{appearance:none;cursor:pointer;}
   </div>
 
   <!-- User Modal -->
+  <!-- User Management Modal -->
   <div class="modal-overlay" id="user-modal" onclick="closeModalOnOverlay(event,'user-modal')">
+    <div class="modal-sheet" style="max-height:88vh;">
+      <div class="modal-handle"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <div class="modal-title" style="margin-bottom:0;">👥 User Management</div>
+        <div id="user-modal-count" style="font-size:11px;font-weight:700;color:var(--text3);background:var(--surface3);border:1px solid var(--border);padding:3px 10px;border-radius:20px;">—</div>
+      </div>
+
+      <!-- Loading state -->
+      <div id="um-loading" style="text-align:center;padding:32px;color:var(--text2);font-size:13px;">
+        <div style="font-size:24px;margin-bottom:8px;animation:spin 1s linear infinite;">⏳</div>
+        Loading users…
+      </div>
+
+      <!-- Error state -->
+      <div id="um-error" style="display:none;padding:12px;background:var(--red-dim);border:1px solid rgba(255,77,109,0.3);border-radius:10px;font-size:12px;color:var(--red);margin-bottom:10px;"></div>
+
+      <!-- User list -->
+      <div id="um-list" style="display:none;overflow-y:auto;max-height:55vh;padding-right:2px;"></div>
+
+      <!-- RLS note -->
+      <div style="font-size:11px;color:var(--text3);padding:10px 0 4px;border-top:1px solid var(--border);margin-top:10px;">
+        🔒 RLS enforced · Users can only access their own data
+      </div>
+    </div>
+  </div>
+
+  <!-- User Edit Modal -->
+  <div class="modal-overlay" id="user-edit-modal" onclick="closeModalOnOverlay(event,'user-edit-modal')">
     <div class="modal-sheet">
       <div class="modal-handle"></div>
-      <div class="modal-title">👥 User Management</div>
-      <div class="card-sm" style="margin-bottom:10px;display:flex;align-items:center;gap:12px;">
-        <div style="width:38px;height:38px;border-radius:12px;background:var(--green-dim);display:flex;align-items:center;justify-content:center;font-size:16px;">J</div>
-        <div style="flex:1;">
-          <div style="font-size:13px;font-weight:600;color:var(--text);">John Smith</div>
-          <div style="font-size:11px;color:var(--text2);"><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="86ece9eee8c6e3ebe7efeaa8e5e9eb">[email&#160;protected]</a> · Active</div>
-        </div>
-        <span style="font-size:10px;font-weight:600;color:var(--green);background:var(--green-dim);padding:3px 8px;border-radius:20px;">USER</span>
+      <div class="modal-title">✏️ Edit User</div>
+      <input type="hidden" id="ue-user-id"/>
+      <div style="margin-bottom:10px;">
+        <div style="font-size:9px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;">Full Name</div>
+        <input type="text" id="ue-name" class="input-field" placeholder="Full name" style="width:100%;box-sizing:border-box;"/>
       </div>
-      <div style="font-size:12px;color:var(--text2);padding:8px 0;">Row Level Security (RLS) is enforced via Supabase. Each user can only access their own transaction data.</div>
-      <button class="btn-secondary" style="margin-top:8px;">+ Invite User</button>
+      <div style="margin-bottom:10px;">
+        <div style="font-size:9px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;">Role</div>
+        <select id="ue-role" class="input-field" style="width:100%;">
+          <option value="user">User</option>
+          <option value="admin">Admin</option>
+        </select>
+      </div>
+      <div style="margin-bottom:14px;">
+        <div style="font-size:9px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;">Reset Password (leave blank to keep current)</div>
+        <input type="password" id="ue-password" class="input-field" placeholder="New password (optional)" style="width:100%;box-sizing:border-box;" autocomplete="new-password"/>
+        <div style="font-size:10px;color:var(--text3);margin-top:4px;">Min 8 chars · 1 uppercase · 1 number. Resetting logs out the user.</div>
+      </div>
+      <div id="ue-error" style="display:none;margin-bottom:10px;padding:10px;background:var(--red-dim);border:1px solid rgba(255,77,109,0.3);border-radius:10px;font-size:12px;color:var(--red);"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <button onclick="closeModal('user-edit-modal')" class="btn-secondary">Cancel</button>
+        <button onclick="saveUserEdit()" class="btn-primary" id="ue-save-btn" style="background:var(--green);color:#050d0a;border:none;">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Admin Security Modal -->
+  <div class="modal-overlay" id="admin-security-modal" onclick="closeModalOnOverlay(event,'admin-security-modal')">
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-title">🔐 Admin Security</div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:14px;">Update your admin password and/or 2FA login code. Current password is required to confirm.</div>
+
+      <div style="margin-bottom:10px;">
+        <div style="font-size:9px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;">Current Password *</div>
+        <input type="password" id="as-current-pw" class="input-field" placeholder="Your current password" style="width:100%;box-sizing:border-box;" autocomplete="current-password"/>
+      </div>
+      <div style="margin-bottom:10px;">
+        <div style="font-size:9px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;">New Password (optional)</div>
+        <input type="password" id="as-new-pw" class="input-field" placeholder="Leave blank to keep current" style="width:100%;box-sizing:border-box;" autocomplete="new-password"/>
+        <div style="font-size:10px;color:var(--text3);margin-top:3px;">Min 8 chars · 1 uppercase · 1 number</div>
+      </div>
+      <div style="margin-bottom:14px;">
+        <div style="font-size:9px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px;">New 2FA Login Code (optional)</div>
+        <input type="text" id="as-new-2fa" class="input-field" placeholder="e.g. 123456 (4–8 digits)" maxlength="8" style="width:100%;box-sizing:border-box;" inputmode="numeric"/>
+        <div style="font-size:10px;color:var(--text3);margin-top:3px;">This code is required every time you log in as admin</div>
+      </div>
+      <div id="as-error" style="display:none;margin-bottom:10px;padding:10px;background:var(--red-dim);border:1px solid rgba(255,77,109,0.3);border-radius:10px;font-size:12px;color:var(--red);"></div>
+      <div id="as-success" style="display:none;margin-bottom:10px;padding:10px;background:rgba(0,229,160,0.08);border:1px solid rgba(0,229,160,0.25);border-radius:10px;font-size:12px;color:var(--green);"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <button onclick="closeModal('admin-security-modal')" class="btn-secondary">Cancel</button>
+        <button onclick="saveAdminSecurity()" class="btn-primary" id="as-save-btn" style="background:var(--amber);color:#050d0a;border:none;">Update Security</button>
+      </div>
     </div>
   </div>
 
@@ -5568,6 +5647,217 @@ function _renderLedgerList(txs) {
       </div>` : ''}
     </div>`;
   }).join('');
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// USER MANAGEMENT (Admin)
+// ═══════════════════════════════════════════════════════════
+
+async function openUserModal() {
+  showModal('user-modal');
+  const loadEl = document.getElementById('um-loading');
+  const listEl = document.getElementById('um-list');
+  const errEl  = document.getElementById('um-error');
+  const cntEl  = document.getElementById('user-modal-count');
+  if (loadEl) loadEl.style.display = 'block';
+  if (listEl) listEl.style.display = 'none';
+  if (errEl)  errEl.style.display  = 'none';
+
+  const session = loadSession();
+  if (!session?.token) return;
+
+  const result = await callAuth({ action: 'get_users', token: session.token });
+  if (loadEl) loadEl.style.display = 'none';
+
+  if (!result.ok) {
+    if (errEl) { errEl.textContent = result.error || 'Failed to load users'; errEl.style.display = 'block'; }
+    return;
+  }
+
+  const users = result.users || [];
+  if (cntEl) cntEl.textContent = users.length + ' user' + (users.length !== 1 ? 's' : '');
+
+  // Update admin panel subtitle
+  const subEl = document.getElementById('admin-user-sub');
+  if (subEl) subEl.textContent = `${users.length} registered · RLS enforced`;
+
+  if (listEl) {
+    listEl.style.display = 'block';
+    listEl.innerHTML = users.length === 0
+      ? `<div style="text-align:center;padding:32px;color:var(--text2);font-size:13px;">No users registered yet</div>`
+      : users.map(u => {
+          const initial    = (u.name || u.username || '?')[0].toUpperCase();
+          const roleColour = u.role === 'admin' ? 'var(--amber)' : 'var(--green)';
+          const roleBg     = u.role === 'admin' ? 'rgba(255,179,71,0.12)' : 'var(--green-dim)';
+          const joinDate   = new Date(u.created_at).toLocaleDateString('en-CA', { month:'short', day:'numeric', year:'numeric' });
+          const lastLogin  = u.last_login_at
+            ? new Date(u.last_login_at).toLocaleDateString('en-CA', { month:'short', day:'numeric', year:'numeric' })
+            : 'Never';
+          return `
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;
+                      padding:13px 14px;margin-bottom:8px;">
+            <!-- Header row -->
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+              <div style="width:38px;height:38px;border-radius:12px;
+                          background:linear-gradient(135deg,var(--green),var(--teal));
+                          display:flex;align-items:center;justify-content:center;
+                          font-size:16px;font-weight:800;color:#050d0a;flex-shrink:0;">${initial}</div>
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:13px;font-weight:700;color:var(--text);
+                            white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${u.name}</div>
+                <div style="font-size:11px;color:var(--text3);">@${u.username} · ${u.province || 'AB'}</div>
+              </div>
+              <span style="font-size:10px;font-weight:700;color:${roleColour};
+                           background:${roleBg};padding:3px 9px;border-radius:20px;
+                           flex-shrink:0;">${u.role.toUpperCase()}</span>
+            </div>
+            <!-- Stats row -->
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px;">
+              <div style="background:var(--surface3);border-radius:8px;padding:7px 10px;text-align:center;">
+                <div style="font-size:9px;color:var(--text3);margin-bottom:2px;">TRANSACTIONS</div>
+                <div style="font-size:14px;font-weight:700;color:var(--text);">${u.tx_count}</div>
+              </div>
+              <div style="background:var(--surface3);border-radius:8px;padding:7px 10px;text-align:center;">
+                <div style="font-size:9px;color:var(--text3);margin-bottom:2px;">SIMULATIONS</div>
+                <div style="font-size:14px;font-weight:700;color:var(--text);">${u.sim_count}</div>
+              </div>
+              <div style="background:var(--surface3);border-radius:8px;padding:7px 10px;text-align:center;">
+                <div style="font-size:9px;color:var(--text3);margin-bottom:2px;">SESSIONS</div>
+                <div style="font-size:14px;font-weight:700;color:${u.active_sessions > 0 ? 'var(--green)' : 'var(--text3)'};">${u.active_sessions}</div>
+              </div>
+            </div>
+            <!-- Dates -->
+            <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-bottom:10px;">
+              <span>Joined: <strong style="color:var(--text2);">${joinDate}</strong></span>
+              <span>Last login: <strong style="color:var(--text2);">${lastLogin}</strong></span>
+            </div>
+            <!-- Action buttons -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+              <button onclick="openUserEdit('${u.id}','${u.name.replace(/'/g, "\'")}','${u.role}')"
+                style="padding:8px;background:var(--surface3);border:1px solid var(--border);
+                       border-radius:10px;color:var(--text);font-size:12px;font-weight:600;cursor:pointer;">
+                ✏️ Edit / Reset PW
+              </button>
+              <button onclick="confirmDeleteUser('${u.id}','${u.username}')"
+                style="padding:8px;background:var(--red-dim);border:1px solid rgba(255,77,109,0.3);
+                       border-radius:10px;color:var(--red);font-size:12px;font-weight:600;cursor:pointer;">
+                🗑 Delete User
+              </button>
+            </div>
+          </div>`;
+        }).join('');
+  }
+}
+
+function openUserEdit(userId, name, role) {
+  document.getElementById('ue-user-id').value = userId;
+  document.getElementById('ue-name').value    = name;
+  document.getElementById('ue-role').value    = role;
+  document.getElementById('ue-password').value = '';
+  const errEl = document.getElementById('ue-error');
+  if (errEl) errEl.style.display = 'none';
+  showModal('user-edit-modal');
+}
+
+async function saveUserEdit() {
+  const userId   = document.getElementById('ue-user-id')?.value;
+  const name     = document.getElementById('ue-name')?.value?.trim();
+  const role     = document.getElementById('ue-role')?.value;
+  const password = document.getElementById('ue-password')?.value;
+  const errEl    = document.getElementById('ue-error');
+  const saveBtn  = document.getElementById('ue-save-btn');
+  if (errEl) errEl.style.display = 'none';
+  if (!userId) return;
+  if (saveBtn) { saveBtn.textContent = 'Saving…'; saveBtn.disabled = true; }
+  const session = loadSession();
+  const payload = { action: 'update_user', token: session?.token, target_user_id: userId, role, name };
+  if (password) payload.new_password = password;
+  const result = await callAuth(payload);
+  if (saveBtn) { saveBtn.textContent = 'Save Changes'; saveBtn.disabled = false; }
+  if (!result.ok) {
+    if (errEl) { errEl.textContent = result.error || 'Failed to update user'; errEl.style.display = 'block'; }
+    return;
+  }
+  closeModal('user-edit-modal');
+  showToast('✓ User updated');
+  // Reload user list
+  setTimeout(() => openUserModal(), 300);
+}
+
+async function confirmDeleteUser(userId, username) {
+  if (!confirm(`Delete user "@${username}"? This will permanently remove all their transactions, simulations, and data. This cannot be undone.`)) return;
+  const session = loadSession();
+  const result  = await callAuth({ action: 'delete_user', token: session?.token, target_user_id: userId });
+  if (!result.ok) {
+    showToast('✗ ' + (result.error || 'Delete failed'), true);
+    return;
+  }
+  showToast('✓ User deleted');
+  setTimeout(() => openUserModal(), 300);
+}
+
+// ═══════════════════════════════════════════════════════════
+// ADMIN SECURITY (Change password & 2FA)
+// ═══════════════════════════════════════════════════════════
+
+function clearAdminSecurityForm() {
+  ['as-current-pw','as-new-pw','as-new-2fa'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  const errEl = document.getElementById('as-error');
+  const sucEl = document.getElementById('as-success');
+  if (errEl) errEl.style.display = 'none';
+  if (sucEl) sucEl.style.display = 'none';
+}
+
+async function saveAdminSecurity() {
+  const currentPw = document.getElementById('as-current-pw')?.value;
+  const newPw     = document.getElementById('as-new-pw')?.value;
+  const new2fa    = document.getElementById('as-new-2fa')?.value?.trim();
+  const errEl     = document.getElementById('as-error');
+  const sucEl     = document.getElementById('as-success');
+  const saveBtn   = document.getElementById('as-save-btn');
+
+  if (errEl) errEl.style.display = 'none';
+  if (sucEl) sucEl.style.display = 'none';
+
+  if (!currentPw) {
+    if (errEl) { errEl.textContent = 'Current password is required'; errEl.style.display = 'block'; }
+    return;
+  }
+  if (!newPw && !new2fa) {
+    if (errEl) { errEl.textContent = 'Enter a new password and/or a new 2FA code'; errEl.style.display = 'block'; }
+    return;
+  }
+
+  if (saveBtn) { saveBtn.textContent = 'Updating…'; saveBtn.disabled = true; }
+  const session = loadSession();
+  const payload = {
+    action: 'update_admin_credentials',
+    token: session?.token,
+    current_password: currentPw,
+  };
+  if (newPw)  payload.new_password = newPw;
+  if (new2fa) payload.new_2fa_code = new2fa;
+
+  const result = await callAuth(payload);
+  if (saveBtn) { saveBtn.textContent = 'Update Security'; saveBtn.disabled = false; }
+
+  if (!result.ok) {
+    if (errEl) { errEl.textContent = result.error || 'Update failed'; errEl.style.display = 'block'; }
+    return;
+  }
+
+  const msgs = [];
+  if (result.password_changed) msgs.push('Password updated');
+  if (result.twofa_changed)    msgs.push('2FA code updated');
+  if (sucEl) { sucEl.textContent = '✓ ' + msgs.join(' · ') + '. Changes take effect on next login.'; sucEl.style.display = 'block'; }
+
+  // Clear fields
+  ['as-current-pw','as-new-pw','as-new-2fa'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
 }
 
 
