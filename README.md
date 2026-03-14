@@ -1,24 +1,17 @@
-# CryptoStack — Complete Setup Guide
+# CryptoStack — Local Setup & Deployment Guide
 
-A Canadian crypto tax & portfolio tracking app.  
-Single HTML frontend + Supabase backend (PostgreSQL + Deno Edge Functions).
-
----
-
-## Repository Structure
+## What's in this package
 
 ```
-cryptostack/
+cryptostack-deploy/
 ├── database/
-│   ├── 01_extensions.sql   ← Enable pgcrypto
-│   ├── 02_tables.sql       ← All 8 tables
-│   ├── 03_indexes.sql      ← Performance indexes + unique constraints
-│   ├── 04_functions.sql    ← Stored functions + triggers (bcrypt auth)
-│   └── 05_seed_data.sql    ← Default coins, providers, admin user
+│   └── schema.sql          ← Complete DB schema (tables, indexes, functions, triggers)
 ├── edge-function/
-│   └── index.ts            ← All API routes (Deno, deploy to Supabase)
+│   └── index.ts            ← Supabase Edge Function (Deno / TypeScript)
 ├── frontend/
-│   └── cryptostack-mobile.html  ← Complete single-file app (open in browser)
+│   └── cryptostack-mobile.html  ← The entire app (single HTML file)
+├── scripts/
+│   └── deploy-edge-function.sh  ← Helper script to deploy the edge function
 └── README.md               ← This file
 ```
 
@@ -26,179 +19,157 @@ cryptostack/
 
 ## Prerequisites
 
-- A [Supabase](https://supabase.com) account (free tier works)
-- [Supabase CLI](https://supabase.com/docs/guides/cli) installed (for edge function deployment)
+- [Supabase account](https://supabase.com) (free tier works)
+- [Supabase CLI](https://supabase.com/docs/guides/cli) installed  
+  `npm install -g supabase`  
+  OR  `brew install supabase/tap/supabase`
 - A modern browser (Chrome, Firefox, Safari, Edge)
 
 ---
 
-## Step-by-Step Setup
-
-### 1. Create a Supabase Project
+## Step 1 — Create a new Supabase project
 
 1. Go to [supabase.com](https://supabase.com) → New Project
-2. Choose a name (e.g. `cryptostack`), region, and strong database password
-3. Wait ~2 minutes for the project to initialize
-4. Note your **Project URL** and **anon/public key** from Settings → API
+2. Choose a name (e.g. `cryptostack`), a strong DB password, and your nearest region
+3. Wait ~2 minutes for the project to initialise
+4. Note your:
+   - **Project URL** → looks like `https://xxxxxxxxxxxx.supabase.co`
+   - **Anon / public key** → Settings → API → `anon` `public`
+   - **Service role key** → Settings → API → `service_role` *(keep secret!)*
 
 ---
 
-### 2. Run the Database Migrations
+## Step 2 — Apply the database schema
 
-Go to your Supabase project → **SQL Editor** and run each file IN ORDER:
+1. In the Supabase dashboard, go to **SQL Editor**
+2. Click **New query**
+3. Paste the entire contents of `database/schema.sql`
+4. Click **Run**
 
-```
-01_extensions.sql   →  Enable pgcrypto
-02_tables.sql       →  Create all tables
-03_indexes.sql      →  Add indexes and constraints
-04_functions.sql    →  Create stored functions and triggers
-05_seed_data.sql    →  Insert default coins, providers, admin user
-```
-
-> **Tip:** You can paste all 5 files into the SQL Editor one at a time, or concatenate them and run at once.
-
-> **Important:** The `05_seed_data.sql` creates an admin user with password `AdminPass1`.  
-> **Change this immediately** after first login via Admin → Security Settings.
+You should see all tables created with no errors.
 
 ---
 
-### 3. Deploy the Edge Function
+## Step 3 — Deploy the Edge Function
 
-Install the Supabase CLI if you haven't:
-```bash
-npm install -g supabase
-```
+### Option A — Supabase CLI (recommended)
 
-Login and link your project:
 ```bash
+# Login
 supabase login
+
+# Link to your project (get project-ref from the URL: xxxxxxxxxxxx.supabase.co)
 supabase link --project-ref YOUR_PROJECT_REF
-# Project ref is the ID in your Supabase URL: https://YOUR_PROJECT_REF.supabase.co
+
+# Deploy
+supabase functions deploy auth --no-verify-jwt \
+  --project-ref YOUR_PROJECT_REF \
+  < edge-function/index.ts
 ```
 
-Deploy the edge function:
-```bash
-cd edge-function
-supabase functions deploy auth --no-verify-jwt
-```
+### Option B — Manual via Dashboard
 
-The `--no-verify-jwt` flag is required because the function implements its own session-based auth.
-
-> **Alternative (no CLI):** You can paste the contents of `index.ts` directly into the Supabase Dashboard under **Edge Functions → New Function** named `auth`, with JWT verification disabled.
+1. In the Supabase dashboard → **Edge Functions** → **New Function**
+2. Name it exactly `auth`
+3. Paste the contents of `edge-function/index.ts`
+4. Toggle **"Verify JWT"** to **OFF** (the function has its own auth)
+5. Click **Deploy**
 
 ---
 
-### 4. Configure the Frontend
+## Step 4 — Configure the frontend
 
-Open `frontend/cryptostack-mobile.html` in a text editor and find these two lines near the top of the `<script>` section:
+Open `frontend/cryptostack-mobile.html` in any text editor and update these two lines near the top of the `<script>` block:
 
 ```javascript
 const SUPABASE_URL  = 'https://YOUR_PROJECT_REF.supabase.co';
-const SUPABASE_ANON = 'YOUR_ANON_KEY_HERE';
+const SUPABASE_ANON = 'YOUR_ANON_PUBLIC_KEY';
 ```
 
-Replace with your actual values from **Supabase → Settings → API**:
-- **Project URL** → `SUPABASE_URL`
-- **anon / public key** → `SUPABASE_ANON`
-
-Save the file.
+Replace with your actual values from Step 1.
 
 ---
 
-### 5. Open the App
+## Step 5 — Create your admin account
 
-Simply **double-click** `cryptostack-mobile.html` to open it in your browser.  
-No web server needed — it's a fully self-contained single-file application.
+1. Open `frontend/cryptostack-mobile.html` directly in your browser (just double-click it — no server needed)
+2. Click **Sign Up** and create your first account
+3. In the Supabase SQL Editor, promote it to admin:
 
-> **Or** host it anywhere:
-> - Drag into [Netlify Drop](https://app.netlify.com/drop)
-> - Upload to GitHub Pages
-> - Copy to any static file host
+```sql
+UPDATE public.cs_users
+SET role = 'admin'
+WHERE username = 'your_username_here';
+```
 
----
+4. Set an admin 2FA code (required for admin login):
 
-## First Login
+```sql
+INSERT INTO public.cs_admin_config (key, value)
+VALUES ('admin_2fa_code', '123456')
+ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+```
 
-Default admin credentials (from `05_seed_data.sql`):
-- **Username:** `admin`
-- **Password:** `AdminPass1`
-- **2FA Code:** `123456`
-
-**Change all three immediately** after first login:
-- Admin → Security Settings → Change Password
-- Admin → Security Settings → Change 2FA Code
-
----
-
-## Database Schema Overview
-
-| Table | Purpose |
-|---|---|
-| `cs_users` | User accounts (bcrypt passwords) |
-| `cs_sessions` | Session tokens (cookie-less auth) |
-| `cs_coins` | Supported cryptocurrencies |
-| `cs_providers` | Exchanges, wallets, banks |
-| `cs_transactions` | All trades, transfers, staking |
-| `cs_import_logs` | CSV import history |
-| `cs_simulations` | Profit simulator saved scenarios |
-| `cs_admin_config` | Admin settings (2FA code, etc.) |
-
-### Key Design Decisions
-
-- `subtotal_cad` and `total_cad` on `cs_transactions` are **GENERATED columns** — computed automatically. Never write to them.
-- Password hashing uses **bcrypt** via PostgreSQL's `pgcrypto` extension (cost factor 12).
-- Sessions use random hex tokens (not JWTs) — stored in `cs_sessions`.
-- CSV import deduplication uses a **3-layer fingerprint** system in the edge function.
-- Transfer pairs (OUT+IN) share a `transfer_group_id`; swap pairs share a `swap_group_id`.
+5. Log in using your admin username, password, and the 2FA code
 
 ---
 
-## Edge Function API Actions
+## Step 6 — Seed coins and providers (via Admin panel)
 
-The single `auth` edge function handles all API calls via `action` field:
+Once logged in as admin:
 
-| Action | Description |
-|---|---|
-| `signup` / `login` / `verify` / `logout` | Auth |
-| `get_coins` / `add_coin` / `delete_coin` | Coin management |
-| `get_providers` / `add_provider` / `delete_provider` | Provider management |
-| `get_users` / `update_user` / `delete_user` | User management (admin) |
-| `update_admin_credentials` | Change admin password/2FA |
-| `add_transaction` / `add_swap` / `add_transfer` | Add transactions |
-| `get_transactions` / `delete_transaction` | Ledger |
-| `update_compliance_note` | Add notes to transactions |
-| `import_transactions` / `get_import_logs` | CSV import |
-| `save_simulation` / `get_simulations` / `delete_simulation` | Profit simulator |
+1. Go to **Admin → Coin Management** → Add your coins (BTC, ETH, SOL, etc.)
+2. Go to **Admin → Provider Management** → Add your exchanges/wallets (Kraken, Coinbase, etc.)
 
 ---
 
-## CSV Import Support
+## Architecture notes
 
-Supported exchanges (auto-detected by parser):
-- **Kraken** — Ledger export (not Trades); groups by refid; merges partial fills
-- **Coinbase** — Transaction history CSV
-- **Binance** — Trade History export
-- **Newton** — Trade history CSV
-- **Shakepay** — Transaction history CSV
-- **Generic** — Any CSV with columns: `date, type, symbol, quantity, price_cad, fees_cad, tx_hash`
+| Layer | Technology | Notes |
+|-------|-----------|-------|
+| Frontend | Single HTML file | Vanilla JS, no build step, runs from file:// |
+| Backend API | Supabase Edge Function (Deno) | Single `auth` function, routes by `action` field |
+| Database | Supabase PostgreSQL | Custom auth (not Supabase Auth), bcrypt passwords |
+| Auth | Custom session tokens | `cs_sessions` table, no JWT |
+
+### Key design decisions
+
+- **No Supabase Auth** — custom username/password with bcrypt via `pgcrypto`
+- **No build system** — the entire frontend is one self-contained HTML file
+- **No ON CONFLICT upserts** — all deduplication is done in-memory in the Edge Function
+- **Generated columns** — `subtotal_cad` and `total_cad` are computed by Postgres, never written directly
+
+### Transaction types
+
+| Type | Description |
+|------|-------------|
+| `BUY` | Purchase of crypto with fiat |
+| `SELL` | Sale of crypto for fiat |
+| `SWAP_IN` | Crypto received in a crypto-to-crypto swap |
+| `SWAP_OUT` | Crypto given in a crypto-to-crypto swap |
+| `TRANSFER_IN` | Crypto received from external wallet |
+| `TRANSFER_OUT` | Crypto sent to external wallet |
+| `STAKING` | Staking reward received |
+| `AIRDROP` | Airdrop received |
 
 ---
 
-## Raw PostgreSQL Notes (non-Supabase)
+## Moving to a different Supabase project
 
-If deploying on a raw PostgreSQL instance instead of Supabase:
-
-1. Replace `extensions.crypt(...)` → `crypt(...)` in `04_functions.sql`
-2. Replace `extensions.gen_salt(...)` → `gen_salt(...)` in `04_functions.sql`
-3. Run `CREATE EXTENSION IF NOT EXISTS pgcrypto;` instead of the extensions file
-4. For the edge function: you can rewrite it as a Node.js/Express API using `@supabase/supabase-js` pointing at your own PostgREST instance, or replace with any backend language
+Just repeat Steps 2–4 with the new project's URL and keys. No data migration needed — the schema is clean.
 
 ---
 
-## Security Notes
+## Troubleshooting
 
-- The Supabase **anon key** in the HTML is safe to expose — it has no direct DB access. All data access goes through the authenticated edge function.
-- The edge function uses the **service role key** (stored as a Supabase secret, never in the HTML) for DB access.
-- All passwords are hashed with **bcrypt cost 12** — never stored in plaintext.
-- Sessions expire after 24 hours (or 30 days with "Remember Me").
-- Admin login requires a separate 2FA numeric code.
+**"Cannot reach Supabase from this preview"**  
+→ Open the HTML file directly in your browser (file://), not from an iframe or code editor preview.
+
+**"Session expired or invalid"**  
+→ Your session token has expired. Log in again.
+
+**Edge Function returning 400 on import**  
+→ Make sure the `auth` function is deployed with `--no-verify-jwt` (JWT verification OFF).
+
+**Coins not showing in import dropdown**  
+→ Add them via Admin → Coin Management first, then re-import.

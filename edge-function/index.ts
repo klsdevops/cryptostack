@@ -1,6 +1,5 @@
 // CryptoStack Edge Function v19
-// Deploy: supabase functions deploy auth --no-verify-jwt
-// Three-layer CSV import dedup (external_id + value fingerprint + qty fingerprint)
+// Three-layer dedup: external_id + CAD-value fingerprint (BUY/SELL) + qty fingerprint (all)
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 
 const SUPABASE_URL     = Deno.env.get('SUPABASE_URL')!;
@@ -318,7 +317,9 @@ async function handleUpdateComplianceNote(b: Record<string,unknown>, token?: str
   return ok({ ok:true, action:'update_compliance_note', transaction_id, compliance_note:compliance_note||null });
 }
 
-// Three-layer import deduplication
+// =================================================================
+// IMPORT — three-layer deduplication, plain INSERT, no ON CONFLICT
+// =================================================================
 async function handleImportTransactions(b: Record<string,unknown>, token?: string) {
   const user = await resolveUser(token); if (!user) return fail('Unauthorized',401);
   const exchange=(b.exchange as string)||'';
@@ -327,6 +328,7 @@ async function handleImportTransactions(b: Record<string,unknown>, token?: strin
   if (!exchange) return fail('exchange is required');
   if (!rows||!Array.isArray(rows)||rows.length===0) return fail('No rows to import');
   if (rows.length>5000) return fail('Maximum 5000 rows per import');
+
   const d = db();
   const [{ data: coins },{ data: providers }] = await Promise.all([
     d.from('cs_coins').select('id,symbol').eq('is_active',true),
@@ -337,31 +339,37 @@ async function handleImportTransactions(b: Record<string,unknown>, token?: strin
   (coins||[]).forEach((c:Record<string,string>)=>{ coinMap[c.symbol.toUpperCase()]=c.id; });
   (providers||[]).forEach((p:Record<string,string>)=>{ providerMap[p.name.toLowerCase()]=p.id; });
   const exchangeProviderId = providerMap[exchange.toLowerCase()]||null;
+
   const { data: exRows } = await d.from('cs_transactions')
     .select('external_id').eq('user_id',user.id).not('external_id','is',null);
   const seenExtIds = new Set<string>(
     (exRows||[]).map((r:Record<string,string>)=>r.external_id).filter(Boolean)
   );
+
   const { data: existingTxs } = await d.from('cs_transactions')
     .select('type,quantity,price_per_unit_cad,subtotal_cad,transacted_at,cs_coins(symbol)')
     .eq('user_id',user.id);
+
   const seenValFps = new Set<string>();
   const seenQtyFps = new Set<string>();
+
   (existingTxs||[]).forEach((tx:Record<string,unknown>) => {
-    const coin = tx.cs_coins as Record<string,string>|null;
-    const sym  = (coin?.symbol||'').toUpperCase();
-    const type = String(tx.type);
-    const qty  = parseFloat(String(tx.quantity||0));
-    const date = String(tx.transacted_at||'').slice(0,10);
+    const coin   = tx.cs_coins as Record<string,string>|null;
+    const sym    = (coin?.symbol||'').toUpperCase();
+    const type   = String(tx.type);
+    const qty    = parseFloat(String(tx.quantity||0));
+    const date   = String(tx.transacted_at||'').slice(0,10);
     seenQtyFps.add(`${type}|${sym}|${date}|${Math.round(qty*1e6)/1e6}`);
     if (type==='BUY'||type==='SELL') {
       const sub = parseFloat(String(tx.subtotal_cad||(qty*parseFloat(String(tx.price_per_unit_cad||0)))));
       if (sub>0) seenValFps.add(`${type}|${sym}|${date}|${Math.round(sub)}`);
     }
   });
+
   let imported=0, skipped=0, errored=0;
   const errors: string[] = [];
   const validTypes = new Set(['BUY','SELL','SWAP_OUT','SWAP_IN','TRANSFER_OUT','TRANSFER_IN','STAKING','AIRDROP']);
+
   for (const row of rows) {
     try {
       const extId  = (row.external_id as string)||null;
@@ -372,6 +380,7 @@ async function handleImportTransactions(b: Record<string,unknown>, token?: strin
       const fees   = parseFloat(String(row.fees_cad||'0'));
       const txAt   = String(row.transacted_at||'');
       const date   = txAt.slice(0,10);
+
       if (extId && seenExtIds.has(extId)) { skipped++; continue; }
       if ((txType==='BUY'||txType==='SELL') && !isNaN(qty) && !isNaN(price) && price>0 && qty>0) {
         if (seenValFps.has(`${txType}|${sym}|${date}|${Math.round(qty*price)}`)) { skipped++; continue; }
@@ -379,11 +388,13 @@ async function handleImportTransactions(b: Record<string,unknown>, token?: strin
       if (!isNaN(qty) && qty>0) {
         if (seenQtyFps.has(`${txType}|${sym}|${date}|${Math.round(qty*1e6)/1e6}`)) { skipped++; continue; }
       }
+
       const coinId = coinMap[sym];
-      if (!coinId)               { errored++; errors.push(`Unknown coin: ${row.symbol}`); continue; }
-      if (isNaN(qty)||qty<=0)   { errored++; errors.push(`Invalid quantity for ${sym}`); continue; }
+      if (!coinId)              { errored++; errors.push(`Unknown coin: ${row.symbol}`); continue; }
+      if (isNaN(qty)||qty<=0)  { errored++; errors.push(`Invalid quantity for ${sym}`); continue; }
       if (isNaN(price)||price<0){ errored++; errors.push(`Invalid price for ${sym}`);   continue; }
       if (!validTypes.has(txType)){ errored++; errors.push(`Unknown type: ${txType}`);  continue; }
+
       const rec: Record<string,unknown> = {
         user_id:user.id, type:txType, coin_id:coinId,
         quantity:qty, price_per_unit_cad:price,
@@ -397,8 +408,10 @@ async function handleImportTransactions(b: Record<string,unknown>, token?: strin
         external_id:extId,
       };
       if (row.swap_group_id){ rec.swap_group_id=row.swap_group_id; rec.swap_role=txType; }
+
       const { error } = await d.from('cs_transactions').insert(rec);
       if (error){ errored++; errors.push(error.message); continue; }
+
       if (extId) seenExtIds.add(extId);
       if ((txType==='BUY'||txType==='SELL') && price>0 && qty>0)
         seenValFps.add(`${txType}|${sym}|${date}|${Math.round(qty*price)}`);
@@ -406,6 +419,7 @@ async function handleImportTransactions(b: Record<string,unknown>, token?: strin
       imported++;
     } catch(e){ errored++; errors.push(String(e)); }
   }
+
   await d.from('cs_import_logs').insert({
     user_id:user.id, exchange, filename,
     rows_parsed:rows.length, rows_imported:imported, rows_skipped:skipped, rows_errored:errored,
