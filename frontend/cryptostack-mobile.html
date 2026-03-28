@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
-<title>CryptoStack Architect v1.0</title>
+<title>CryptoStack Architect v20</title>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
@@ -598,66 +598,7 @@ select.input-field{appearance:none;cursor:pointer;}
 
   <div class="screens">
 
-    <!-- ██ SUPABASE CONFIG SCREEN ██ -->
-  <div class="screen" id="screen-supabase-config">
-    <div class="header">
-      <button class="header-back" onclick="showScreen('login','left')">‹</button>
-      <div class="header-title">Supabase Configuration</div>
-      <div style="width:40px;"></div>
-    </div>
-    <div class="scroll-area" style="padding:24px;">
-      <div style="background:var(--surface2);border-radius:16px;padding:20px;margin-bottom:20px;border:1px solid var(--border);">
-        <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:8px;">⚙ Connect to Your Supabase Project</div>
-        <div style="font-size:12px;color:var(--text2);line-height:1.6;">
-          Enter your Supabase project URL and anon key to get started.
-          These are saved in your browser's local storage and never leave your device.
-        </div>
-      </div>
-
-      <div style="margin-bottom:16px;">
-        <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">Project URL</div>
-        <input id="cfg-url" type="url" class="input-field"
-          placeholder="https://xxxxxxxxxxxx.supabase.co"
-          style="width:100%;box-sizing:border-box;"
-          value="">
-        <div style="font-size:10px;color:var(--text3);margin-top:4px;">Settings → API → Project URL</div>
-      </div>
-
-      <div style="margin-bottom:24px;">
-        <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">Anon / Public Key</div>
-        <input id="cfg-anon" type="password" class="input-field"
-          placeholder="eyJhbGciOi..."
-          style="width:100%;box-sizing:border-box;"
-          value="">
-        <div style="font-size:10px;color:var(--text3);margin-top:4px;">Settings → API → anon public</div>
-      </div>
-
-      <button onclick="saveSupabaseConfig()"
-        style="width:100%;padding:14px;background:var(--green);color:#000;font-weight:700;font-size:14px;border:none;border-radius:14px;cursor:pointer;margin-bottom:12px;">
-        Save &amp; Connect →
-      </button>
-
-      <button onclick="resetSupabaseConfig()"
-        style="width:100%;padding:12px;background:var(--surface3);color:var(--text2);font-weight:600;font-size:13px;border:none;border-radius:14px;cursor:pointer;margin-bottom:24px;">
-        Reset to Default (Original Project)
-      </button>
-
-      <div style="background:var(--surface2);border-radius:12px;padding:16px;border:1px solid var(--border);">
-        <div style="font-size:11px;font-weight:700;color:var(--text);margin-bottom:10px;">📋 Quick Setup Steps</div>
-        <div style="font-size:11px;color:var(--text2);line-height:1.8;">
-          1. Create a free project at <strong style="color:var(--teal);">supabase.com</strong><br>
-          2. Run <strong>database/schema.sql</strong> in the SQL Editor<br>
-          3. Deploy <strong>edge-function/index.ts</strong> as function named <strong>auth</strong><br>
-          4. Copy your Project URL &amp; anon key here<br>
-          5. Sign up for a new account on the login screen
-        </div>
-      </div>
-
-      <div id="cfg-status" style="margin-top:16px;display:none;padding:12px 16px;border-radius:10px;font-size:13px;font-weight:600;text-align:center;"></div>
-    </div>
-  </div>
-
-<!-- ████████████████████████████████ -->
+  <!-- ████████████████████████████████ -->
   <!-- SCREEN: LOGIN -->
   <!-- ████████████████████████████████ -->
   <div class="screen active" id="screen-login">
@@ -780,13 +721,6 @@ select.input-field{appearance:none;cursor:pointer;}
           </div>
           <div id="adm-error" style="display:none;font-size:12px;color:var(--red);background:var(--red-dim);border:1px solid rgba(255,77,109,0.25);border-radius:8px;padding:8px 12px;"></div>
           <button class="btn-primary" onclick="submitAdminLogin()">Admin Sign In →</button>
-
-        <!-- ── Supabase configuration link ─────────────────────── -->
-        <div style="text-align:center;margin-top:28px;padding-top:20px;border-top:1px solid var(--border);">
-          <button onclick="showScreen('supabase-config')" style="background:none;border:none;color:var(--text3);font-size:12px;cursor:pointer;padding:6px 12px;border-radius:8px;transition:color .2s;">
-            ⚙ Configure Supabase Project
-          </button>
-        </div>
           <div style="margin-top:8px;font-size:11px;color:var(--text3);text-align:center;">
             Default: admin / Admin@123 / 000000
           </div>
@@ -3266,78 +3200,22 @@ function switchMainTab(tab) {
 // Passwords hashed with bcrypt (pgcrypto) server-side — never
 // transmitted or stored in plain text anywhere.
 //
-// Edge Function: https://PRODUCTION.supabase.co/functions/v1/auth
+// Edge Function: https://jmyarnvpuwethwhucxvp.supabase.co/functions/v1/auth
 // Tables: public.cs_users, public.cs_sessions
 // Session token stored in localStorage for persistence.
 // ═══════════════════════════════════════════════════════════
 
-console.log('%c CryptoStack v1.0 — Production Build', 'color:#00e5a0;font-weight:bold');
-
-// ── Supabase Configuration Screen ────────────────────────────────────────
-function showSupabaseConfigScreen() {
-  // Pre-fill with current values
-  const urlEl  = document.getElementById('cfg-url');
-  const anonEl = document.getElementById('cfg-anon');
-  if (urlEl)  urlEl.value  = SUPABASE_URL;
-  if (anonEl) anonEl.value = SUPABASE_ANON;
-  showScreen('supabase-config');
-}
-// Override showScreen for supabase-config to pre-fill fields
-const _origShowScreen = showScreen;
-// Populate fields when entering config screen
-document.addEventListener('DOMContentLoaded', () => {
-  const cfgBtn = document.querySelector('[onclick="showScreen(\'supabase-config\')"]');
-  if (cfgBtn) cfgBtn.setAttribute('onclick', 'showSupabaseConfigScreen()');
-});
-function saveSupabaseConfig() {
-  const url  = (document.getElementById('cfg-url')?.value  || '').trim().replace(/\/$/, '');
-  const anon = (document.getElementById('cfg-anon')?.value || '').trim();
-  const statusEl = document.getElementById('cfg-status');
-  if (!url.startsWith('https://') || !url.includes('.supabase.co')) {
-    if (statusEl) { statusEl.textContent = '✗ URL must be https://xxxx.supabase.co'; statusEl.style.background = 'rgba(255,77,109,0.15)'; statusEl.style.color = 'var(--red)'; statusEl.style.display = 'block'; }
-    return;
-  }
-  if (anon.length < 100) {
-    if (statusEl) { statusEl.textContent = '✗ Anon key looks too short — paste the full JWT'; statusEl.style.background = 'rgba(255,77,109,0.15)'; statusEl.style.color = 'var(--red)'; statusEl.style.display = 'block'; }
-    return;
-  }
-  // Save and apply
-  localStorage.setItem('cs_supabase_url',  url);
-  localStorage.setItem('cs_supabase_anon', anon);
-  SUPABASE_URL  = url;
-  SUPABASE_ANON = anon;
-  if (statusEl) { statusEl.textContent = '✓ Saved! Returning to login…'; statusEl.style.background = 'rgba(0,229,160,0.12)'; statusEl.style.color = 'var(--green)'; statusEl.style.display = 'block'; }
-  setTimeout(() => showScreen('login', 'left'), 1200);
-}
-function resetSupabaseConfig() {
-  localStorage.removeItem('cs_supabase_url');
-  localStorage.removeItem('cs_supabase_anon');
-  SUPABASE_URL  = _DEFAULT_URL;
-  SUPABASE_ANON = _DEFAULT_ANON;
-  const urlEl  = document.getElementById('cfg-url');
-  const anonEl = document.getElementById('cfg-anon');
-  if (urlEl)  urlEl.value  = _DEFAULT_URL;
-  if (anonEl) anonEl.value = _DEFAULT_ANON;
-  const statusEl = document.getElementById('cfg-status');
-  if (statusEl) { statusEl.textContent = '✓ Reset to default project'; statusEl.style.background = 'rgba(0,229,160,0.12)'; statusEl.style.color = 'var(--green)'; statusEl.style.display = 'block'; }
-}
-// ── Supabase Configuration ──────────────────────────────────────────
-// Pre-fill YOUR project URL and anon key below for a zero-config build,
-// or leave empty and configure via the in-app Setup screen at first launch.
-const _DEFAULT_URL  = '';   // e.g. 'https://xxxxxxxxxxxx.supabase.co'
-const _DEFAULT_ANON = '';   // e.g. 'eyJhbGci...' (anon/public key)
-let SUPABASE_URL  = localStorage.getItem('cs_supabase_url')  || _DEFAULT_URL;
-let SUPABASE_ANON = localStorage.getItem('cs_supabase_anon') || _DEFAULT_ANON;
-const AUTH_FN_BASE     = '/functions/v1/auth';
-// AUTH_FN is computed dynamically so it always uses the current SUPABASE_URL
-function getAuthFn() { return SUPABASE_URL + AUTH_FN_BASE; }
+console.log('%c CryptoStack v20 — Edge Function v19 loaded', 'color:#00e5a0;font-weight:bold');
+const SUPABASE_URL     = 'https://jmyarnvpuwethwhucxvp.supabase.co';
+const SUPABASE_ANON    = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpteWFybnZwdXdldGh3aHVjeHZwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIyNDUzNTQsImV4cCI6MjA4NzgyMTM1NH0.wwgI3RaRiXMpHh4CsAxs_73mS9Yuw2y-EzmlAlO2f8o';
+const AUTH_FN          = SUPABASE_URL + '/functions/v1/auth';
 const SESSION_KEY      = 'csa_session_token';
 const SESSION_USER_KEY = 'csa_session_user';
 
 // ── Call the auth Edge Function ──────────────────────────
 async function callAuth(payload) {
   try {
-    const res = await fetch(getAuthFn(), {
+    const res = await fetch(AUTH_FN, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -3349,17 +3227,11 @@ async function callAuth(payload) {
     const data = await res.json();
     return data;
   } catch (e) {
-    // Distinguish between "blocked by sandbox" vs real network errors
-    const msg = e.message || '';
-    const isBlocked = msg.includes('Failed to fetch') && (
-      window.location.href.includes('claude.ai') ||
-      window.location.href.includes('anthropic') ||
-      window.self !== window.top  // inside an iframe
-    );
-    if (isBlocked) {
-      return { ok: false, error: 'This app cannot reach Supabase from inside Claude\'s preview. Save the HTML file to your computer and open it directly in Chrome, Firefox, or Safari (File → Open, or double-click the file).' };
-    }
-    return { ok: false, error: 'Network error — check your Supabase URL and anon key in the Setup screen. Details: ' + msg };
+    const isSandbox = e.message && (e.message.includes('fetch') || e.message.includes('network') || e.message.includes('Failed'));
+    const msg = isSandbox
+      ? 'Cannot reach Supabase from this preview. Open the downloaded HTML file directly in your browser instead.'
+      : 'Network error: ' + e.message;
+    return { ok: false, error: msg };
   }
 }
 
@@ -3589,11 +3461,6 @@ async function doLogout() {
 // BOOT — verify existing localStorage session against DB
 // ═══════════════════════════════════════════════════════════
 async function bootApp() {
-  // If no Supabase project is configured, show setup screen first
-  if (!SUPABASE_URL || !SUPABASE_ANON) {
-    showSupabaseConfigScreen();
-    return;
-  }
   const saved = loadSession();
   if (!saved) return; // no saved session, stay on login screen
 

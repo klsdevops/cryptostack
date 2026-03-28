@@ -1,11 +1,17 @@
 -- ============================================================
--- CryptoStack v1.0 — Complete Database Schema
--- Run this entire file in the Supabase SQL Editor (once)
+-- CryptoStack — Complete Database Schema
+-- Compatible with: Supabase (PostgreSQL 15+)
+-- Run this entire file in the Supabase SQL Editor
 -- ============================================================
 
+-- Enable required extensions
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
 
--- Admin configuration
+-- ============================================================
+-- TABLES
+-- ============================================================
+
+-- Admin configuration key-value store
 CREATE TABLE IF NOT EXISTS public.cs_admin_config (
   key        TEXT NOT NULL,
   value      TEXT NOT NULL,
@@ -13,7 +19,7 @@ CREATE TABLE IF NOT EXISTS public.cs_admin_config (
   CONSTRAINT cs_admin_config_pkey PRIMARY KEY (key)
 );
 
--- Coins
+-- Supported cryptocurrencies
 CREATE TABLE IF NOT EXISTS public.cs_coins (
   id           UUID        NOT NULL DEFAULT gen_random_uuid(),
   symbol       TEXT        NOT NULL,
@@ -26,7 +32,7 @@ CREATE TABLE IF NOT EXISTS public.cs_coins (
   CONSTRAINT cs_coins_symbol_key UNIQUE (symbol)
 );
 
--- Providers (exchanges, wallets, banks)
+-- Exchange / wallet / bank providers
 CREATE TABLE IF NOT EXISTS public.cs_providers (
   id         UUID        NOT NULL DEFAULT gen_random_uuid(),
   name       TEXT        NOT NULL,
@@ -36,10 +42,10 @@ CREATE TABLE IF NOT EXISTS public.cs_providers (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT cs_providers_pkey      PRIMARY KEY (id),
   CONSTRAINT cs_providers_name_key  UNIQUE (name),
-  CONSTRAINT cs_providers_type_check CHECK (type = ANY (ARRAY['EXCHANGE','WALLET','BANK']))
+  CONSTRAINT cs_providers_type_check CHECK (type = ANY (ARRAY['EXCHANGE'::text, 'WALLET'::text, 'BANK'::text]))
 );
 
--- Users (custom auth — NOT Supabase Auth)
+-- Application users (custom auth, NOT Supabase auth)
 CREATE TABLE IF NOT EXISTS public.cs_users (
   id            UUID        NOT NULL DEFAULT gen_random_uuid(),
   username      TEXT        NOT NULL,
@@ -51,10 +57,10 @@ CREATE TABLE IF NOT EXISTS public.cs_users (
   last_login_at TIMESTAMPTZ,
   CONSTRAINT cs_users_pkey         PRIMARY KEY (id),
   CONSTRAINT cs_users_username_key UNIQUE (username),
-  CONSTRAINT cs_users_role_check   CHECK (role = ANY (ARRAY['user','admin']))
+  CONSTRAINT cs_users_role_check   CHECK (role = ANY (ARRAY['user'::text, 'admin'::text]))
 );
 
--- Sessions
+-- Session tokens
 CREATE TABLE IF NOT EXISTS public.cs_sessions (
   id          UUID        NOT NULL DEFAULT gen_random_uuid(),
   user_id     UUID        NOT NULL,
@@ -69,40 +75,44 @@ CREATE TABLE IF NOT EXISTS public.cs_sessions (
     FOREIGN KEY (user_id) REFERENCES public.cs_users(id) ON DELETE CASCADE
 );
 
--- Transactions
+-- Crypto transactions
 CREATE TABLE IF NOT EXISTS public.cs_transactions (
-  id                  UUID        NOT NULL DEFAULT gen_random_uuid(),
-  user_id             UUID        NOT NULL,
-  type                TEXT        NOT NULL,
-  coin_id             UUID        NOT NULL,
-  quantity            NUMERIC     NOT NULL,
-  price_per_unit_cad  NUMERIC     NOT NULL,
-  subtotal_cad        NUMERIC     GENERATED ALWAYS AS (quantity * price_per_unit_cad) STORED,
-  fees_cad            NUMERIC     NOT NULL DEFAULT 0,
-  total_cad           NUMERIC     GENERATED ALWAYS AS ((quantity * price_per_unit_cad) + fees_cad) STORED,
-  from_provider_id    UUID,
-  to_provider_id      UUID,
-  transacted_at       TIMESTAMPTZ NOT NULL,
+  id                 UUID        NOT NULL DEFAULT gen_random_uuid(),
+  user_id            UUID        NOT NULL,
+  type               TEXT        NOT NULL,
+  coin_id            UUID        NOT NULL,
+  quantity           NUMERIC     NOT NULL,
+  price_per_unit_cad NUMERIC     NOT NULL,
+  -- Generated columns (do NOT insert into these):
+  subtotal_cad       NUMERIC     GENERATED ALWAYS AS (quantity * price_per_unit_cad) STORED,
+  fees_cad           NUMERIC     NOT NULL DEFAULT 0,
+  total_cad          NUMERIC     GENERATED ALWAYS AS ((quantity * price_per_unit_cad) + fees_cad) STORED,
+  from_provider_id   UUID,
+  to_provider_id     UUID,
+  transacted_at      TIMESTAMPTZ NOT NULL,
   acb_per_unit_before NUMERIC,
   acb_per_unit_after  NUMERIC,
-  capital_gain_cad    NUMERIC,
-  is_taxable          BOOLEAN     NOT NULL DEFAULT false,
-  superficial_loss    BOOLEAN     NOT NULL DEFAULT false,
-  tx_hash             TEXT,
-  notes               TEXT,
-  compliance_note     TEXT,
-  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-  transfer_group_id   UUID,
-  transfer_role       TEXT,
-  fee_treatment       TEXT,
-  fee_units           NUMERIC,
-  fee_fmv_cad         NUMERIC,
-  fee_acb_cad         NUMERIC,
-  fee_gain_cad        NUMERIC,
-  swap_group_id       UUID,
-  swap_role           TEXT,
-  external_id         TEXT,
+  capital_gain_cad   NUMERIC,
+  is_taxable         BOOLEAN     NOT NULL DEFAULT false,
+  superficial_loss   BOOLEAN     NOT NULL DEFAULT false,
+  tx_hash            TEXT,
+  notes              TEXT,
+  compliance_note    TEXT,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- Transfer grouping
+  transfer_group_id  UUID,
+  transfer_role      TEXT,
+  fee_treatment      TEXT,
+  fee_units          NUMERIC,
+  fee_fmv_cad        NUMERIC,
+  fee_acb_cad        NUMERIC,
+  fee_gain_cad       NUMERIC,
+  -- Swap grouping
+  swap_group_id      UUID,
+  swap_role          TEXT,
+  -- CSV import deduplication
+  external_id        TEXT,
   CONSTRAINT cs_transactions_pkey PRIMARY KEY (id),
   CONSTRAINT cs_transactions_user_id_fkey
     FOREIGN KEY (user_id) REFERENCES public.cs_users(id) ON DELETE CASCADE,
@@ -114,14 +124,17 @@ CREATE TABLE IF NOT EXISTS public.cs_transactions (
     FOREIGN KEY (to_provider_id) REFERENCES public.cs_providers(id),
   CONSTRAINT cs_transactions_type_check CHECK (
     type = ANY (ARRAY[
-      'BUY','SELL','TRANSFER','TRANSFER_OUT','TRANSFER_IN',
-      'SWAP_IN','SWAP_OUT','AIRDROP','STAKING'
+      'BUY'::text, 'SELL'::text, 'TRANSFER'::text,
+      'TRANSFER_OUT'::text, 'TRANSFER_IN'::text,
+      'SWAP_IN'::text, 'SWAP_OUT'::text,
+      'AIRDROP'::text, 'STAKING'::text
     ])
   ),
+  -- Dedup: each user can have a given external_id only once (NULLs are always distinct)
   CONSTRAINT uq_transactions_user_external UNIQUE (user_id, external_id)
 );
 
--- Simulations
+-- Profit simulations
 CREATE TABLE IF NOT EXISTS public.cs_simulations (
   id                  UUID        NOT NULL DEFAULT gen_random_uuid(),
   user_id             UUID        NOT NULL,
@@ -145,7 +158,7 @@ CREATE TABLE IF NOT EXISTS public.cs_simulations (
     FOREIGN KEY (coin_id) REFERENCES public.cs_coins(id)
 );
 
--- Import audit log
+-- CSV import audit log
 CREATE TABLE IF NOT EXISTS public.cs_import_logs (
   id            UUID        NOT NULL DEFAULT gen_random_uuid(),
   user_id       UUID        NOT NULL,
@@ -163,56 +176,85 @@ CREATE TABLE IF NOT EXISTS public.cs_import_logs (
     FOREIGN KEY (user_id) REFERENCES public.cs_users(id) ON DELETE CASCADE
 );
 
--- ── Indexes ──────────────────────────────────────────────────────────
-CREATE INDEX IF NOT EXISTS idx_cs_users_username    ON public.cs_users(username);
-CREATE INDEX IF NOT EXISTS idx_cs_sessions_user_id  ON public.cs_sessions(user_id);
-CREATE INDEX IF NOT EXISTS idx_cs_sessions_token    ON public.cs_sessions(token);
-CREATE INDEX IF NOT EXISTS idx_cs_sessions_expires  ON public.cs_sessions(expires_at);
-CREATE INDEX IF NOT EXISTS idx_cs_tx_user_id        ON public.cs_transactions(user_id);
-CREATE INDEX IF NOT EXISTS idx_cs_tx_user_coin      ON public.cs_transactions(user_id, coin_id);
-CREATE INDEX IF NOT EXISTS idx_cs_tx_transacted_at  ON public.cs_transactions(user_id, transacted_at DESC);
-CREATE INDEX IF NOT EXISTS idx_transfer_group       ON public.cs_transactions(transfer_group_id) WHERE transfer_group_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_swap_group           ON public.cs_transactions(swap_group_id)     WHERE swap_group_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_cs_sim_user          ON public.cs_simulations(user_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_import_logs_user     ON public.cs_import_logs(user_id);
+-- ============================================================
+-- INDEXES
+-- ============================================================
 
--- ── Functions ────────────────────────────────────────────────────────
+CREATE INDEX IF NOT EXISTS idx_cs_users_username      ON public.cs_users(username);
+CREATE INDEX IF NOT EXISTS idx_cs_sessions_user_id    ON public.cs_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_cs_sessions_token      ON public.cs_sessions(token);
+CREATE INDEX IF NOT EXISTS idx_cs_sessions_expires    ON public.cs_sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_cs_tx_user_id          ON public.cs_transactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_cs_tx_user_coin        ON public.cs_transactions(user_id, coin_id);
+CREATE INDEX IF NOT EXISTS idx_cs_tx_transacted_at    ON public.cs_transactions(user_id, transacted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_transfer_group         ON public.cs_transactions(transfer_group_id) WHERE transfer_group_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_swap_group             ON public.cs_transactions(swap_group_id)     WHERE swap_group_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_cs_sim_user            ON public.cs_simulations(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_import_logs_user       ON public.cs_import_logs(user_id);
+
+-- ============================================================
+-- FUNCTIONS
+-- ============================================================
+
+-- Trigger function: auto-update updated_at
 CREATE OR REPLACE FUNCTION public.set_updated_at()
-RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN NEW.updated_at = now(); RETURN NEW; END; $$;
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$;
 
+-- Set (hash) a user's password using bcrypt
 CREATE OR REPLACE FUNCTION public.set_user_password(p_user_id UUID, p_password TEXT)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER
-SET search_path TO 'public', 'extensions' AS $$
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $$
 BEGIN
   UPDATE public.cs_users
   SET password_hash = extensions.crypt(p_password, extensions.gen_salt('bf', 12))
   WHERE id = p_user_id;
-END; $$;
+END;
+$$;
 
+-- Verify a user's password and return their profile
 CREATE OR REPLACE FUNCTION public.verify_user_password(p_username TEXT, p_password TEXT)
 RETURNS TABLE(id UUID, username TEXT, name TEXT, province TEXT, role TEXT)
-LANGUAGE plpgsql SECURITY DEFINER
-SET search_path TO 'public', 'extensions' AS $$
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $$
 BEGIN
   RETURN QUERY
-  SELECT u.id, u.username, u.name, u.province, u.role
+  SELECT
+    u.id,
+    u.username,
+    u.name,
+    u.province,
+    u.role
   FROM public.cs_users u
   WHERE u.username = p_username
     AND u.password_hash = extensions.crypt(p_password, u.password_hash);
-END; $$;
+END;
+$$;
 
--- ── Triggers ─────────────────────────────────────────────────────────
+-- ============================================================
+-- TRIGGERS
+-- ============================================================
+
 CREATE OR REPLACE TRIGGER trg_transactions_updated_at
   BEFORE UPDATE ON public.cs_transactions
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
--- ── First-run instructions ────────────────────────────────────────────
--- After running this schema:
--- 1. Deploy edge-function/index.ts as a Supabase Edge Function named 'auth' (JWT OFF)
--- 2. Open frontend/cryptostack-mobile.html in your browser
--- 3. Tap "⚙ Configure Supabase Project" → enter URL + anon key
--- 4. Sign up → then in SQL Editor run:
---      UPDATE cs_users SET role = 'admin' WHERE username = 'your_username';
---      INSERT INTO cs_admin_config (key, value) VALUES ('admin_2fa_code', '123456');
--- 5. Add coins + providers via Admin panel
+-- ============================================================
+-- INITIAL SEED DATA
+-- ============================================================
+-- Seed your admin account using the Edge Function signup action.
+-- Then update the role to 'admin' manually:
+--   UPDATE cs_users SET role = 'admin' WHERE username = 'your_admin_username';
+-- Then set a 2FA code for admin login:
+--   INSERT INTO cs_admin_config (key, value) VALUES ('admin_2fa_code', '123456');
