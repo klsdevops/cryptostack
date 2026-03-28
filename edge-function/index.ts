@@ -1,5 +1,4 @@
-// CryptoStack Edge Function v19
-// Three-layer dedup: external_id + CAD-value fingerprint (BUY/SELL) + qty fingerprint (all)
+// CryptoStack Edge Function v19 — Production Build
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 
 const SUPABASE_URL     = Deno.env.get('SUPABASE_URL')!;
@@ -86,7 +85,6 @@ async function handleLogout(b: Record<string,string>) {
   if (b.token) await db().from('cs_sessions').delete().eq('token',b.token);
   return ok({ ok:true, action:'logout' });
 }
-
 async function handleGetCoins() {
   const { data, error } = await db().from('cs_coins').select('id,symbol,name,icon,coingecko_id').eq('is_active',true).order('symbol');
   if (error) return fail('Failed to load coins');
@@ -95,12 +93,9 @@ async function handleGetCoins() {
 async function handleAddCoin(b: Record<string,unknown>, token?: string) {
   const user = await resolveUser(token); if (!user) return fail('Unauthorized',401);
   if (user.role!=='admin') return fail('Admin access required',403);
-  const symbol=((b.symbol as string)||'').trim().toUpperCase();
-  const name=((b.name as string)||'').trim();
-  const coingecko_id=((b.coingecko_id as string)||'').trim().toLowerCase()||null;
-  const icon=((b.icon as string)||'').trim()||'●';
-  if (!symbol) return fail('Symbol is required');
-  if (!name)   return fail('Name is required');
+  const symbol=((b.symbol as string)||'').trim().toUpperCase(), name=((b.name as string)||'').trim();
+  const coingecko_id=((b.coingecko_id as string)||'').trim().toLowerCase()||null, icon=((b.icon as string)||'').trim()||'●';
+  if (!symbol) return fail('Symbol is required'); if (!name) return fail('Name is required');
   if (!/^[A-Z0-9]+$/.test(symbol)) return fail('Symbol must be letters and numbers only');
   const { data: ex } = await db().from('cs_coins').select('id').ilike('symbol',symbol).maybeSingle();
   if (ex) return fail(`A coin with symbol "${symbol}" already exists`);
@@ -154,13 +149,11 @@ async function handleGetUsers(token?: string) {
     d.from('cs_simulations').select('user_id').in('user_id',ids),
     d.from('cs_sessions').select('user_id').gt('expires_at',new Date().toISOString()).in('user_id',ids),
   ]);
-  const txM:Record<string,number>={}, simM:Record<string,number>={}, sesM:Record<string,number>={};
+  const txM:Record<string,number>={},simM:Record<string,number>={},sesM:Record<string,number>={};
   (txC||[]).forEach((r:Record<string,string>)=>{txM[r.user_id]=(txM[r.user_id]||0)+1;});
   (simC||[]).forEach((r:Record<string,string>)=>{simM[r.user_id]=(simM[r.user_id]||0)+1;});
   (sesC||[]).forEach((r:Record<string,string>)=>{sesM[r.user_id]=(sesM[r.user_id]||0)+1;});
-  return ok({ ok:true, action:'get_users',
-    users:(users||[]).map((u:Record<string,string>)=>({...u,tx_count:txM[u.id]||0,sim_count:simM[u.id]||0,active_sessions:sesM[u.id]||0})),
-    total:(users||[]).length });
+  return ok({ ok:true, action:'get_users', users:(users||[]).map((u:Record<string,string>)=>({...u,tx_count:txM[u.id]||0,sim_count:simM[u.id]||0,active_sessions:sesM[u.id]||0})), total:(users||[]).length });
 }
 async function handleUpdateUser(b: Record<string,unknown>, token?: string) {
   const user = await resolveUser(token); if (!user) return fail('Unauthorized',401);
@@ -213,83 +206,49 @@ async function handleUpdateAdminCredentials(b: Record<string,unknown>, token?: s
   }
   if (new_2fa_code) {
     if (!/^\d{4,8}$/.test(new_2fa_code)) return fail('2FA code must be 4-8 digits');
-    const { error } = await d.from('cs_admin_config')
-      .upsert({ key:'admin_2fa_code', value:new_2fa_code, updated_at:new Date().toISOString() },{ onConflict:'key' });
+    const { error } = await d.from('cs_admin_config').upsert({ key:'admin_2fa_code', value:new_2fa_code, updated_at:new Date().toISOString() },{ onConflict:'key' });
     if (error) return fail('Failed to update 2FA code: '+error.message);
   }
   return ok({ ok:true, action:'update_admin_credentials', password_changed:!!new_password, twofa_changed:!!new_2fa_code });
 }
-
 const TX_SELECT = `id,type,quantity,price_per_unit_cad,subtotal_cad,fees_cad,total_cad,transacted_at,tx_hash,notes,compliance_note,is_taxable,superficial_loss,capital_gain_cad,created_at,transfer_group_id,transfer_role,cs_coins(id,symbol,name,icon),from_provider:cs_providers!from_provider_id(id,name,icon),to_provider:cs_providers!to_provider_id(id,name,icon)`;
-
 async function handleAddTransaction(b: Record<string,unknown>, token?: string) {
   const user = await resolveUser(token); if (!user) return fail('Unauthorized',401);
   const { type,coin_id,quantity,price_per_unit_cad,fees_cad,from_provider_id,to_provider_id,transacted_at,tx_hash,notes } = b as Record<string,string>;
   if (!type||!coin_id||!quantity||!price_per_unit_cad||!transacted_at) return fail('Missing required fields');
-  if (isNaN(parseFloat(quantity))) return fail('Invalid quantity');
-  if (isNaN(parseFloat(price_per_unit_cad))) return fail('Invalid price');
-  const { data, error } = await db().from('cs_transactions').insert({
-    user_id:user.id,type,coin_id,quantity:parseFloat(quantity),price_per_unit_cad:parseFloat(price_per_unit_cad),
-    fees_cad:parseFloat(fees_cad||'0'),from_provider_id:from_provider_id||null,to_provider_id:to_provider_id||null,
-    transacted_at,is_taxable:['SELL','SWAP_OUT','SWAP_IN'].includes(type),tx_hash:tx_hash||null,notes:notes||null,
-  }).select(TX_SELECT).single();
+  const { data, error } = await db().from('cs_transactions').insert({ user_id:user.id,type,coin_id,quantity:parseFloat(quantity),price_per_unit_cad:parseFloat(price_per_unit_cad),fees_cad:parseFloat(fees_cad||'0'),from_provider_id:from_provider_id||null,to_provider_id:to_provider_id||null,transacted_at,is_taxable:['SELL','SWAP_OUT','SWAP_IN'].includes(type),tx_hash:tx_hash||null,notes:notes||null }).select(TX_SELECT).single();
   if (error) return fail('Failed to save transaction: '+error.message);
   return ok({ ok:true, action:'add_transaction', transaction:data });
 }
 async function handleAddSwap(b: Record<string,unknown>, token?: string) {
   const user = await resolveUser(token); if (!user) return fail('Unauthorized',401);
-  const ta=b.transacted_at as string, fp=(b.from_provider_id as string)||null, th=(b.tx_hash as string)||null;
-  const fci=b.from_coin_id as string, as_=parseFloat(b.amount_sold as string);
-  const fcp=parseFloat(b.from_coin_price_cad as string), cg=parseFloat(b.capital_gain_cad as string);
-  const tci=b.to_coin_id as string, ar=parseFloat(b.amount_received as string);
-  const sfc=parseFloat(b.swap_fee_cad as string||'0'), nau=parseFloat(b.new_coin_acb_unit as string);
+  const ta=b.transacted_at as string,fp=(b.from_provider_id as string)||null,th=(b.tx_hash as string)||null;
+  const fci=b.from_coin_id as string,as_=parseFloat(b.amount_sold as string),fcp=parseFloat(b.from_coin_price_cad as string),cg=parseFloat(b.capital_gain_cad as string);
+  const tci=b.to_coin_id as string,ar=parseFloat(b.amount_received as string),sfc=parseFloat(b.swap_fee_cad as string||'0'),nau=parseFloat(b.new_coin_acb_unit as string);
   if (!ta||!fci||!tci||fci===tci) return fail('Invalid swap fields');
   if (isNaN(as_)||as_<=0||isNaN(ar)||ar<=0) return fail('Invalid quantities');
-  const sg=crypto.randomUUID(), d=db();
-  const { data: o, error: oe } = await d.from('cs_transactions').insert({
-    user_id:user.id,type:'SWAP_OUT',coin_id:fci,quantity:as_,price_per_unit_cad:fcp,fees_cad:0,
-    from_provider_id:fp,to_provider_id:null,transacted_at:ta,is_taxable:true,capital_gain_cad:cg,tx_hash:th,
-    notes:(b.swap_out_notes as string)||null,
-  }).select(TX_SELECT).single();
+  const sg=crypto.randomUUID(),d=db();
+  const { data: o, error: oe } = await d.from('cs_transactions').insert({ user_id:user.id,type:'SWAP_OUT',coin_id:fci,quantity:as_,price_per_unit_cad:fcp,fees_cad:0,from_provider_id:fp,to_provider_id:null,transacted_at:ta,is_taxable:true,capital_gain_cad:cg,tx_hash:th,notes:(b.swap_out_notes as string)||null }).select(TX_SELECT).single();
   if (oe) return fail('Failed to save swap (OUT): '+oe.message);
-  const { data: i, error: ie } = await d.from('cs_transactions').insert({
-    user_id:user.id,type:'SWAP_IN',coin_id:tci,quantity:ar,price_per_unit_cad:nau,
-    fees_cad:isNaN(sfc)?0:sfc,from_provider_id:fp,to_provider_id:null,transacted_at:ta,is_taxable:true,capital_gain_cad:0,tx_hash:th,
-    notes:(b.swap_in_notes as string)||null,
-  }).select(TX_SELECT).single();
+  const { data: i, error: ie } = await d.from('cs_transactions').insert({ user_id:user.id,type:'SWAP_IN',coin_id:tci,quantity:ar,price_per_unit_cad:nau,fees_cad:isNaN(sfc)?0:sfc,from_provider_id:fp,to_provider_id:null,transacted_at:ta,is_taxable:true,capital_gain_cad:0,tx_hash:th,notes:(b.swap_in_notes as string)||null }).select(TX_SELECT).single();
   if (ie) { await d.from('cs_transactions').delete().eq('id',o.id); return fail('Failed to save swap (IN): '+ie.message); }
   return ok({ ok:true, action:'add_swap', swap_group_id:sg, swap_out:o, swap_in:i });
 }
 async function handleAddTransfer(b: Record<string,unknown>, token?: string) {
   const user = await resolveUser(token); if (!user) return fail('Unauthorized',401);
-  const ci=b.coin_id as string, fp=b.from_provider_id as string, tp=b.to_provider_id as string, ta=b.transacted_at as string;
-  const qty=parseFloat(b.quantity as string), apu=parseFloat(b.acb_per_unit as string||'0');
-  const fac=parseFloat(b.fee_acb_cad as string||'0'), fu=parseFloat(b.fee_units as string||'0');
-  const ffc=parseFloat(b.fee_fmv_cad as string||'0'), fgc=parseFloat(b.fee_gain_cad as string||'0');
-  const ft=(b.fee_treatment as string)||'realize', th=(b.tx_hash as string)||null;
+  const ci=b.coin_id as string,fp=b.from_provider_id as string,tp=b.to_provider_id as string,ta=b.transacted_at as string;
+  const qty=parseFloat(b.quantity as string),apu=parseFloat(b.acb_per_unit as string||'0'),fac=parseFloat(b.fee_acb_cad as string||'0'),fu=parseFloat(b.fee_units as string||'0'),ffc=parseFloat(b.fee_fmv_cad as string||'0'),fgc=parseFloat(b.fee_gain_cad as string||'0'),ft=(b.fee_treatment as string)||'realize',th=(b.tx_hash as string)||null;
   if (!ci||!fp||!tp||!ta||isNaN(qty)||qty<=0||fp===tp) return fail('Invalid transfer fields');
-  const tg=crypto.randomUUID(), d=db();
-  const { data: o, error: oe } = await d.from('cs_transactions').insert({
-    user_id:user.id,type:'TRANSFER_OUT',coin_id:ci,quantity:qty,price_per_unit_cad:apu,fees_cad:isNaN(fac)?0:fac,
-    from_provider_id:fp,to_provider_id:tp,transacted_at:ta,is_taxable:fgc!==0,tx_hash:th,
-    notes:(b.transfer_out_notes as string)||null,
-    transfer_group_id:tg,transfer_role:'TRANSFER_OUT',fee_treatment:ft,
-    fee_units:fu||null,fee_fmv_cad:ffc||null,fee_acb_cad:fac||null,fee_gain_cad:fgc||null,
-  }).select(TX_SELECT).single();
+  const tg=crypto.randomUUID(),d=db();
+  const { data: o, error: oe } = await d.from('cs_transactions').insert({ user_id:user.id,type:'TRANSFER_OUT',coin_id:ci,quantity:qty,price_per_unit_cad:apu,fees_cad:isNaN(fac)?0:fac,from_provider_id:fp,to_provider_id:tp,transacted_at:ta,is_taxable:fgc!==0,tx_hash:th,notes:(b.transfer_out_notes as string)||null,transfer_group_id:tg,transfer_role:'TRANSFER_OUT',fee_treatment:ft,fee_units:fu||null,fee_fmv_cad:ffc||null,fee_acb_cad:fac||null,fee_gain_cad:fgc||null }).select(TX_SELECT).single();
   if (oe) return fail('Failed to save transfer (OUT): '+oe.message);
-  const { data: i, error: ie } = await d.from('cs_transactions').insert({
-    user_id:user.id,type:'TRANSFER_IN',coin_id:ci,quantity:qty,price_per_unit_cad:apu,fees_cad:0,
-    from_provider_id:fp,to_provider_id:tp,transacted_at:ta,is_taxable:false,tx_hash:th,
-    notes:(b.transfer_in_notes as string)||null,
-    transfer_group_id:tg,transfer_role:'TRANSFER_IN',fee_treatment:ft,
-    fee_units:null,fee_fmv_cad:null,fee_acb_cad:null,fee_gain_cad:null,
-  }).select(TX_SELECT).single();
+  const { data: i, error: ie } = await d.from('cs_transactions').insert({ user_id:user.id,type:'TRANSFER_IN',coin_id:ci,quantity:qty,price_per_unit_cad:apu,fees_cad:0,from_provider_id:fp,to_provider_id:tp,transacted_at:ta,is_taxable:false,tx_hash:th,notes:(b.transfer_in_notes as string)||null,transfer_group_id:tg,transfer_role:'TRANSFER_IN',fee_treatment:ft,fee_units:null,fee_fmv_cad:null,fee_acb_cad:null,fee_gain_cad:null }).select(TX_SELECT).single();
   if (ie) { await d.from('cs_transactions').delete().eq('id',o.id); return fail('Failed to save transfer (IN): '+ie.message); }
   return ok({ ok:true, action:'add_transfer', transfer_group_id:tg, transfer_out:o, transfer_in:i });
 }
 async function handleGetTransactions(b: Record<string,unknown>, token?: string) {
   const user = await resolveUser(token); if (!user) return fail('Unauthorized',401);
-  const ci=b.coin_id as string|undefined, lim=Math.min(parseInt(b.limit as string||'100'),500);
+  const ci=b.coin_id as string|undefined,lim=Math.min(parseInt(b.limit as string||'100'),500);
   let q=db().from('cs_transactions').select(TX_SELECT).eq('user_id',user.id).order('transacted_at',{ascending:false}).limit(lim);
   if (ci) q=q.eq('coin_id',ci);
   const { data, error } = await q;
@@ -316,148 +275,72 @@ async function handleUpdateComplianceNote(b: Record<string,unknown>, token?: str
   if (error) return fail('Failed to save note: '+error.message);
   return ok({ ok:true, action:'update_compliance_note', transaction_id, compliance_note:compliance_note||null });
 }
-
-// =================================================================
-// IMPORT — three-layer deduplication, plain INSERT, no ON CONFLICT
-// =================================================================
 async function handleImportTransactions(b: Record<string,unknown>, token?: string) {
   const user = await resolveUser(token); if (!user) return fail('Unauthorized',401);
-  const exchange=(b.exchange as string)||'';
-  const filename=(b.filename as string)||'';
-  const rows = b.rows as Array<Record<string,unknown>>;
+  const exchange=(b.exchange as string)||'',filename=(b.filename as string)||'',rows = b.rows as Array<Record<string,unknown>>;
   if (!exchange) return fail('exchange is required');
   if (!rows||!Array.isArray(rows)||rows.length===0) return fail('No rows to import');
   if (rows.length>5000) return fail('Maximum 5000 rows per import');
-
   const d = db();
-  const [{ data: coins },{ data: providers }] = await Promise.all([
-    d.from('cs_coins').select('id,symbol').eq('is_active',true),
-    d.from('cs_providers').select('id,name').eq('is_active',true),
-  ]);
-  const coinMap: Record<string,string>     = {};
-  const providerMap: Record<string,string> = {};
+  const [{ data: coins },{ data: providers }] = await Promise.all([d.from('cs_coins').select('id,symbol').eq('is_active',true),d.from('cs_providers').select('id,name').eq('is_active',true)]);
+  const coinMap: Record<string,string>={},providerMap: Record<string,string>={};
   (coins||[]).forEach((c:Record<string,string>)=>{ coinMap[c.symbol.toUpperCase()]=c.id; });
   (providers||[]).forEach((p:Record<string,string>)=>{ providerMap[p.name.toLowerCase()]=p.id; });
   const exchangeProviderId = providerMap[exchange.toLowerCase()]||null;
-
-  const { data: exRows } = await d.from('cs_transactions')
-    .select('external_id').eq('user_id',user.id).not('external_id','is',null);
-  const seenExtIds = new Set<string>(
-    (exRows||[]).map((r:Record<string,string>)=>r.external_id).filter(Boolean)
-  );
-
-  const { data: existingTxs } = await d.from('cs_transactions')
-    .select('type,quantity,price_per_unit_cad,subtotal_cad,transacted_at,cs_coins(symbol)')
-    .eq('user_id',user.id);
-
-  const seenValFps = new Set<string>();
-  const seenQtyFps = new Set<string>();
-
+  const { data: exRows } = await d.from('cs_transactions').select('external_id').eq('user_id',user.id).not('external_id','is',null);
+  const seenExtIds = new Set<string>((exRows||[]).map((r:Record<string,string>)=>r.external_id).filter(Boolean));
+  const { data: existingTxs } = await d.from('cs_transactions').select('type,quantity,price_per_unit_cad,subtotal_cad,transacted_at,cs_coins(symbol)').eq('user_id',user.id);
+  const seenValFps = new Set<string>(),seenQtyFps = new Set<string>();
   (existingTxs||[]).forEach((tx:Record<string,unknown>) => {
-    const coin   = tx.cs_coins as Record<string,string>|null;
-    const sym    = (coin?.symbol||'').toUpperCase();
-    const type   = String(tx.type);
-    const qty    = parseFloat(String(tx.quantity||0));
-    const date   = String(tx.transacted_at||'').slice(0,10);
+    const coin=tx.cs_coins as Record<string,string>|null,sym=(coin?.symbol||'').toUpperCase(),type=String(tx.type),qty=parseFloat(String(tx.quantity||0)),date=String(tx.transacted_at||'').slice(0,10);
     seenQtyFps.add(`${type}|${sym}|${date}|${Math.round(qty*1e6)/1e6}`);
-    if (type==='BUY'||type==='SELL') {
-      const sub = parseFloat(String(tx.subtotal_cad||(qty*parseFloat(String(tx.price_per_unit_cad||0)))));
-      if (sub>0) seenValFps.add(`${type}|${sym}|${date}|${Math.round(sub)}`);
-    }
+    if (type==='BUY'||type==='SELL') { const sub=parseFloat(String(tx.subtotal_cad||(qty*parseFloat(String(tx.price_per_unit_cad||0))))); if (sub>0) seenValFps.add(`${type}|${sym}|${date}|${Math.round(sub)}`); }
   });
-
-  let imported=0, skipped=0, errored=0;
-  const errors: string[] = [];
-  const validTypes = new Set(['BUY','SELL','SWAP_OUT','SWAP_IN','TRANSFER_OUT','TRANSFER_IN','STAKING','AIRDROP']);
-
+  let imported=0,skipped=0,errored=0;
+  const errors: string[]=[],validTypes = new Set(['BUY','SELL','SWAP_OUT','SWAP_IN','TRANSFER_OUT','TRANSFER_IN','STAKING','AIRDROP']);
   for (const row of rows) {
     try {
-      const extId  = (row.external_id as string)||null;
-      const txType = String(row.type||'');
-      const sym    = String(row.symbol||'').toUpperCase();
-      const qty    = parseFloat(String(row.quantity||0));
-      const price  = parseFloat(String(row.price_cad||0));
-      const fees   = parseFloat(String(row.fees_cad||'0'));
-      const txAt   = String(row.transacted_at||'');
-      const date   = txAt.slice(0,10);
-
-      if (extId && seenExtIds.has(extId)) { skipped++; continue; }
-      if ((txType==='BUY'||txType==='SELL') && !isNaN(qty) && !isNaN(price) && price>0 && qty>0) {
-        if (seenValFps.has(`${txType}|${sym}|${date}|${Math.round(qty*price)}`)) { skipped++; continue; }
-      }
-      if (!isNaN(qty) && qty>0) {
-        if (seenQtyFps.has(`${txType}|${sym}|${date}|${Math.round(qty*1e6)/1e6}`)) { skipped++; continue; }
-      }
-
-      const coinId = coinMap[sym];
-      if (!coinId)              { errored++; errors.push(`Unknown coin: ${row.symbol}`); continue; }
-      if (isNaN(qty)||qty<=0)  { errored++; errors.push(`Invalid quantity for ${sym}`); continue; }
-      if (isNaN(price)||price<0){ errored++; errors.push(`Invalid price for ${sym}`);   continue; }
-      if (!validTypes.has(txType)){ errored++; errors.push(`Unknown type: ${txType}`);  continue; }
-
-      const rec: Record<string,unknown> = {
-        user_id:user.id, type:txType, coin_id:coinId,
-        quantity:qty, price_per_unit_cad:price,
-        fees_cad:isNaN(fees)?0:fees,
-        transacted_at:txAt||null,
-        is_taxable:['SELL','SWAP_OUT','SWAP_IN','STAKING','AIRDROP'].includes(txType),
-        tx_hash:(row.tx_hash && String(row.tx_hash)!=='null') ? String(row.tx_hash) : null,
-        notes:(row.notes as string)||null,
-        from_provider_id:exchangeProviderId,
-        to_provider_id:null,
-        external_id:extId,
-      };
-      if (row.swap_group_id){ rec.swap_group_id=row.swap_group_id; rec.swap_role=txType; }
-
+      const extId=(row.external_id as string)||null,txType=String(row.type||''),sym=String(row.symbol||'').toUpperCase(),qty=parseFloat(String(row.quantity||0)),price=parseFloat(String(row.price_cad||0)),fees=parseFloat(String(row.fees_cad||'0')),txAt=String(row.transacted_at||''),date=txAt.slice(0,10);
+      if (extId&&seenExtIds.has(extId)) { skipped++; continue; }
+      if ((txType==='BUY'||txType==='SELL')&&!isNaN(qty)&&!isNaN(price)&&price>0&&qty>0) { if (seenValFps.has(`${txType}|${sym}|${date}|${Math.round(qty*price)}`)) { skipped++; continue; } }
+      if (!isNaN(qty)&&qty>0) { if (seenQtyFps.has(`${txType}|${sym}|${date}|${Math.round(qty*1e6)/1e6}`)) { skipped++; continue; } }
+      const coinId=coinMap[sym];
+      if (!coinId) { errored++; errors.push(`Unknown coin: ${row.symbol}`); continue; }
+      if (isNaN(qty)||qty<=0) { errored++; errors.push(`Invalid quantity for ${sym}`); continue; }
+      if (isNaN(price)||price<0) { errored++; errors.push(`Invalid price for ${sym}`); continue; }
+      if (!validTypes.has(txType)) { errored++; errors.push(`Unknown type: ${txType}`); continue; }
+      const rec: Record<string,unknown> = { user_id:user.id,type:txType,coin_id:coinId,quantity:qty,price_per_unit_cad:price,fees_cad:isNaN(fees)?0:fees,transacted_at:txAt||null,is_taxable:['SELL','SWAP_OUT','SWAP_IN','STAKING','AIRDROP'].includes(txType),tx_hash:(row.tx_hash&&String(row.tx_hash)!=='null')?String(row.tx_hash):null,notes:(row.notes as string)||null,from_provider_id:exchangeProviderId,to_provider_id:null,external_id:extId };
+      if (row.swap_group_id) { rec.swap_group_id=row.swap_group_id; rec.swap_role=txType; }
       const { error } = await d.from('cs_transactions').insert(rec);
-      if (error){ errored++; errors.push(error.message); continue; }
-
+      if (error) { errored++; errors.push(error.message); continue; }
       if (extId) seenExtIds.add(extId);
-      if ((txType==='BUY'||txType==='SELL') && price>0 && qty>0)
-        seenValFps.add(`${txType}|${sym}|${date}|${Math.round(qty*price)}`);
+      if ((txType==='BUY'||txType==='SELL')&&price>0&&qty>0) seenValFps.add(`${txType}|${sym}|${date}|${Math.round(qty*price)}`);
       seenQtyFps.add(`${txType}|${sym}|${date}|${Math.round(qty*1e6)/1e6}`);
       imported++;
-    } catch(e){ errored++; errors.push(String(e)); }
+    } catch(e) { errored++; errors.push(String(e)); }
   }
-
-  await d.from('cs_import_logs').insert({
-    user_id:user.id, exchange, filename,
-    rows_parsed:rows.length, rows_imported:imported, rows_skipped:skipped, rows_errored:errored,
-    status:imported===0&&errored>0?'failed':'complete',
-    error_detail:errors.slice(0,10).join(' | ')||null,
-  });
+  await d.from('cs_import_logs').insert({ user_id:user.id,exchange,filename,rows_parsed:rows.length,rows_imported:imported,rows_skipped:skipped,rows_errored:errored,status:imported===0&&errored>0?'failed':'complete',error_detail:errors.slice(0,10).join(' | ')||null });
   return ok({ ok:true, action:'import_transactions', imported, skipped, errored, errors:errors.slice(0,10), total:rows.length });
 }
-
 async function handleGetImportLogs(token?: string) {
   const user = await resolveUser(token); if (!user) return fail('Unauthorized',401);
-  const { data, error } = await db().from('cs_import_logs')
-    .select('id,exchange,filename,rows_parsed,rows_imported,rows_skipped,rows_errored,status,created_at')
-    .eq('user_id',user.id).order('created_at',{ascending:false}).limit(20);
+  const { data, error } = await db().from('cs_import_logs').select('id,exchange,filename,rows_parsed,rows_imported,rows_skipped,rows_errored,status,created_at').eq('user_id',user.id).order('created_at',{ascending:false}).limit(20);
   if (error) return fail('Failed to load import logs: '+error.message);
   return ok({ ok:true, action:'get_import_logs', logs:data??[] });
 }
-
 async function handleSaveSimulation(b: Record<string,unknown>, token?: string) {
   const user = await resolveUser(token); if (!user) return fail('Unauthorized',401);
-  const ci=b.coin_id as string, qty=parseFloat(b.quantity as string), pp=parseFloat(b.purchase_price_cad as string);
-  const fc=parseFloat(b.fees_cad as string||'0'), fp_=parseFloat(b.forecasted_profit as string);
-  const rsp=parseFloat(b.required_sell_price as string), lbl=(b.label as string)||null;
+  const ci=b.coin_id as string,qty=parseFloat(b.quantity as string),pp=parseFloat(b.purchase_price_cad as string),fc=parseFloat(b.fees_cad as string||'0'),fp_=parseFloat(b.forecasted_profit as string),rsp=parseFloat(b.required_sell_price as string),lbl=(b.label as string)||null;
   if (!ci||isNaN(qty)||qty<=0||isNaN(pp)||isNaN(fp_)||isNaN(rsp)) return fail('Invalid simulation parameters');
-  const cb=qty*pp+fc, gp=qty*rsp-cb-fc;
-  const { data, error } = await db().from('cs_simulations').insert({
-    user_id:user.id,coin_id:ci,quantity:qty,purchase_price_cad:pp,fees_cad:fc,forecasted_profit:fp_,required_sell_price:rsp,
-    cost_basis_cad:cb,gross_proceeds_cad:qty*rsp,sell_fees_cad:fc,gross_profit_cad:gp,net_profit_cad:gp,label:lbl,
-  }).select('id,quantity,purchase_price_cad,fees_cad,forecasted_profit,required_sell_price,cost_basis_cad,gross_proceeds_cad,sell_fees_cad,gross_profit_cad,net_profit_cad,label,created_at,cs_coins(id,symbol,name,icon)').single();
+  const cb=qty*pp+fc,gp=qty*rsp-cb-fc;
+  const { data, error } = await db().from('cs_simulations').insert({ user_id:user.id,coin_id:ci,quantity:qty,purchase_price_cad:pp,fees_cad:fc,forecasted_profit:fp_,required_sell_price:rsp,cost_basis_cad:cb,gross_proceeds_cad:qty*rsp,sell_fees_cad:fc,gross_profit_cad:gp,net_profit_cad:gp,label:lbl }).select('id,quantity,purchase_price_cad,fees_cad,forecasted_profit,required_sell_price,cost_basis_cad,gross_proceeds_cad,sell_fees_cad,gross_profit_cad,net_profit_cad,label,created_at,cs_coins(id,symbol,name,icon)').single();
   if (error) return fail('Failed to save simulation: '+error.message);
   return ok({ ok:true, action:'save_simulation', simulation:data });
 }
 async function handleGetSimulations(b: Record<string,unknown>, token?: string) {
   const user = await resolveUser(token); if (!user) return fail('Unauthorized',401);
   const lim=Math.min(parseInt(b.limit as string||'50'),200);
-  const { data, error } = await db().from('cs_simulations')
-    .select('id,quantity,purchase_price_cad,fees_cad,forecasted_profit,required_sell_price,cost_basis_cad,gross_proceeds_cad,sell_fees_cad,gross_profit_cad,net_profit_cad,label,created_at,cs_coins(id,symbol,name,icon)')
-    .eq('user_id',user.id).order('created_at',{ascending:false}).limit(lim);
+  const { data, error } = await db().from('cs_simulations').select('id,quantity,purchase_price_cad,fees_cad,forecasted_profit,required_sell_price,cost_basis_cad,gross_proceeds_cad,sell_fees_cad,gross_profit_cad,net_profit_cad,label,created_at,cs_coins(id,symbol,name,icon)').eq('user_id',user.id).order('created_at',{ascending:false}).limit(lim);
   if (error) return fail('Failed to load simulations: '+error.message);
   return ok({ ok:true, action:'get_simulations', simulations:data??[], count:(data??[]).length });
 }
