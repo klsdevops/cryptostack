@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
-<title>CryptoStack Architect v1.0</title>
+<title>CryptoStack v1.0 — Local</title>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
@@ -620,7 +620,7 @@ select.input-field{appearance:none;cursor:pointer;}
           placeholder="https://xxxxxxxxxxxx.supabase.co"
           style="width:100%;box-sizing:border-box;"
           value="">
-        <div style="font-size:10px;color:var(--text3);margin-top:4px;">Settings → API → Project URL</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:4px;">e.g. http://localhost:3000</div>
       </div>
 
       <div style="margin-bottom:24px;">
@@ -629,7 +629,7 @@ select.input-field{appearance:none;cursor:pointer;}
           placeholder="eyJhbGciOi..."
           style="width:100%;box-sizing:border-box;"
           value="">
-        <div style="font-size:10px;color:var(--text3);margin-top:4px;">Settings → API → anon public</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:4px;">Type 'local' (not used by local server)</div>
       </div>
 
       <button onclick="saveSupabaseConfig()"
@@ -3321,11 +3321,11 @@ function resetSupabaseConfig() {
   const statusEl = document.getElementById('cfg-status');
   if (statusEl) { statusEl.textContent = '✓ Reset to default project'; statusEl.style.background = 'rgba(0,229,160,0.12)'; statusEl.style.color = 'var(--green)'; statusEl.style.display = 'block'; }
 }
-// ── Supabase Configuration ──────────────────────────────────────────
-// Pre-fill YOUR project URL and anon key below for a zero-config build,
-// or leave empty and configure via the in-app Setup screen at first launch.
-const _DEFAULT_URL  = '';   // e.g. 'https://xxxxxxxxxxxx.supabase.co'
-const _DEFAULT_ANON = '';   // e.g. 'eyJhbGci...' (anon/public key)
+// ── Local Server Configuration ──────────────────────────────────────
+// Pre-configured for the local Node.js server running on port 3000.
+// Change the URL below if you use a different port.
+const _DEFAULT_URL  = 'http://localhost:3000';
+const _DEFAULT_ANON = 'local';  // not used by local server
 let SUPABASE_URL  = localStorage.getItem('cs_supabase_url')  || _DEFAULT_URL;
 let SUPABASE_ANON = localStorage.getItem('cs_supabase_anon') || _DEFAULT_ANON;
 const AUTH_FN_BASE     = '/functions/v1/auth';

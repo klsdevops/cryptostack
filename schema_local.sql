@@ -1,19 +1,19 @@
 -- ============================================================
--- CryptoStack v1.0 — Complete Database Schema
--- Run this entire file in the Supabase SQL Editor (once)
+-- CryptoStack v1.0 — Local PostgreSQL Schema
+-- For use with the Node.js local server (server.js)
+-- Password hashing is done by bcrypt in Node.js — NOT pgcrypto
+-- Run this in: psql -U postgres -d cryptostack -f schema_local.sql
 -- ============================================================
 
-CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
+-- ── Tables ───────────────────────────────────────────────────────────
 
--- Admin configuration
 CREATE TABLE IF NOT EXISTS public.cs_admin_config (
-  key        TEXT NOT NULL,
-  value      TEXT NOT NULL,
+  key        TEXT        NOT NULL,
+  value      TEXT        NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT cs_admin_config_pkey PRIMARY KEY (key)
 );
 
--- Coins
 CREATE TABLE IF NOT EXISTS public.cs_coins (
   id           UUID        NOT NULL DEFAULT gen_random_uuid(),
   symbol       TEXT        NOT NULL,
@@ -26,7 +26,6 @@ CREATE TABLE IF NOT EXISTS public.cs_coins (
   CONSTRAINT cs_coins_symbol_key UNIQUE (symbol)
 );
 
--- Providers (exchanges, wallets, banks)
 CREATE TABLE IF NOT EXISTS public.cs_providers (
   id         UUID        NOT NULL DEFAULT gen_random_uuid(),
   name       TEXT        NOT NULL,
@@ -34,12 +33,12 @@ CREATE TABLE IF NOT EXISTS public.cs_providers (
   icon       TEXT,
   is_active  BOOLEAN     NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  CONSTRAINT cs_providers_pkey      PRIMARY KEY (id),
-  CONSTRAINT cs_providers_name_key  UNIQUE (name),
+  CONSTRAINT cs_providers_pkey       PRIMARY KEY (id),
+  CONSTRAINT cs_providers_name_key   UNIQUE (name),
   CONSTRAINT cs_providers_type_check CHECK (type = ANY (ARRAY['EXCHANGE','WALLET','BANK']))
 );
 
--- Users (custom auth — NOT Supabase Auth)
+-- NOTE: password_hash stores bcrypt hashes (handled by Node.js, not pgcrypto)
 CREATE TABLE IF NOT EXISTS public.cs_users (
   id            UUID        NOT NULL DEFAULT gen_random_uuid(),
   username      TEXT        NOT NULL,
@@ -54,7 +53,6 @@ CREATE TABLE IF NOT EXISTS public.cs_users (
   CONSTRAINT cs_users_role_check   CHECK (role = ANY (ARRAY['user','admin']))
 );
 
--- Sessions
 CREATE TABLE IF NOT EXISTS public.cs_sessions (
   id          UUID        NOT NULL DEFAULT gen_random_uuid(),
   user_id     UUID        NOT NULL,
@@ -66,10 +64,9 @@ CREATE TABLE IF NOT EXISTS public.cs_sessions (
   CONSTRAINT cs_sessions_pkey      PRIMARY KEY (id),
   CONSTRAINT cs_sessions_token_key UNIQUE (token),
   CONSTRAINT cs_sessions_user_id_fkey
-    FOREIGN KEY (user_id) REFERENCES public.cs_users(id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES cs_users(id) ON DELETE CASCADE
 );
 
--- Transactions
 CREATE TABLE IF NOT EXISTS public.cs_transactions (
   id                  UUID        NOT NULL DEFAULT gen_random_uuid(),
   user_id             UUID        NOT NULL,
@@ -77,6 +74,7 @@ CREATE TABLE IF NOT EXISTS public.cs_transactions (
   coin_id             UUID        NOT NULL,
   quantity            NUMERIC     NOT NULL,
   price_per_unit_cad  NUMERIC     NOT NULL,
+  -- Generated columns (auto-computed by Postgres, do NOT insert into these):
   subtotal_cad        NUMERIC     GENERATED ALWAYS AS (quantity * price_per_unit_cad) STORED,
   fees_cad            NUMERIC     NOT NULL DEFAULT 0,
   total_cad           NUMERIC     GENERATED ALWAYS AS ((quantity * price_per_unit_cad) + fees_cad) STORED,
@@ -105,13 +103,13 @@ CREATE TABLE IF NOT EXISTS public.cs_transactions (
   external_id         TEXT,
   CONSTRAINT cs_transactions_pkey PRIMARY KEY (id),
   CONSTRAINT cs_transactions_user_id_fkey
-    FOREIGN KEY (user_id) REFERENCES public.cs_users(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES cs_users(id) ON DELETE CASCADE,
   CONSTRAINT cs_transactions_coin_id_fkey
-    FOREIGN KEY (coin_id) REFERENCES public.cs_coins(id),
+    FOREIGN KEY (coin_id) REFERENCES cs_coins(id),
   CONSTRAINT cs_transactions_from_provider_id_fkey
-    FOREIGN KEY (from_provider_id) REFERENCES public.cs_providers(id),
+    FOREIGN KEY (from_provider_id) REFERENCES cs_providers(id),
   CONSTRAINT cs_transactions_to_provider_id_fkey
-    FOREIGN KEY (to_provider_id) REFERENCES public.cs_providers(id),
+    FOREIGN KEY (to_provider_id) REFERENCES cs_providers(id),
   CONSTRAINT cs_transactions_type_check CHECK (
     type = ANY (ARRAY[
       'BUY','SELL','TRANSFER','TRANSFER_OUT','TRANSFER_IN',
@@ -121,7 +119,6 @@ CREATE TABLE IF NOT EXISTS public.cs_transactions (
   CONSTRAINT uq_transactions_user_external UNIQUE (user_id, external_id)
 );
 
--- Simulations
 CREATE TABLE IF NOT EXISTS public.cs_simulations (
   id                  UUID        NOT NULL DEFAULT gen_random_uuid(),
   user_id             UUID        NOT NULL,
@@ -140,12 +137,11 @@ CREATE TABLE IF NOT EXISTS public.cs_simulations (
   created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT cs_simulations_pkey PRIMARY KEY (id),
   CONSTRAINT cs_simulations_user_id_fkey
-    FOREIGN KEY (user_id) REFERENCES public.cs_users(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES cs_users(id) ON DELETE CASCADE,
   CONSTRAINT cs_simulations_coin_id_fkey
-    FOREIGN KEY (coin_id) REFERENCES public.cs_coins(id)
+    FOREIGN KEY (coin_id) REFERENCES cs_coins(id)
 );
 
--- Import audit log
 CREATE TABLE IF NOT EXISTS public.cs_import_logs (
   id            UUID        NOT NULL DEFAULT gen_random_uuid(),
   user_id       UUID        NOT NULL,
@@ -160,59 +156,35 @@ CREATE TABLE IF NOT EXISTS public.cs_import_logs (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT cs_import_logs_pkey PRIMARY KEY (id),
   CONSTRAINT cs_import_logs_user_id_fkey
-    FOREIGN KEY (user_id) REFERENCES public.cs_users(id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES cs_users(id) ON DELETE CASCADE
 );
 
--- ── Indexes ──────────────────────────────────────────────────────────
-CREATE INDEX IF NOT EXISTS idx_cs_users_username    ON public.cs_users(username);
-CREATE INDEX IF NOT EXISTS idx_cs_sessions_user_id  ON public.cs_sessions(user_id);
-CREATE INDEX IF NOT EXISTS idx_cs_sessions_token    ON public.cs_sessions(token);
-CREATE INDEX IF NOT EXISTS idx_cs_sessions_expires  ON public.cs_sessions(expires_at);
-CREATE INDEX IF NOT EXISTS idx_cs_tx_user_id        ON public.cs_transactions(user_id);
-CREATE INDEX IF NOT EXISTS idx_cs_tx_user_coin      ON public.cs_transactions(user_id, coin_id);
-CREATE INDEX IF NOT EXISTS idx_cs_tx_transacted_at  ON public.cs_transactions(user_id, transacted_at DESC);
-CREATE INDEX IF NOT EXISTS idx_transfer_group       ON public.cs_transactions(transfer_group_id) WHERE transfer_group_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_swap_group           ON public.cs_transactions(swap_group_id)     WHERE swap_group_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_cs_sim_user          ON public.cs_simulations(user_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_import_logs_user     ON public.cs_import_logs(user_id);
+-- ── Indexes ───────────────────────────────────────────────────────────
+CREATE INDEX IF NOT EXISTS idx_cs_users_username    ON cs_users(username);
+CREATE INDEX IF NOT EXISTS idx_cs_sessions_user_id  ON cs_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_cs_sessions_token    ON cs_sessions(token);
+CREATE INDEX IF NOT EXISTS idx_cs_sessions_expires  ON cs_sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_cs_tx_user_id        ON cs_transactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_cs_tx_user_coin      ON cs_transactions(user_id, coin_id);
+CREATE INDEX IF NOT EXISTS idx_cs_tx_transacted_at  ON cs_transactions(user_id, transacted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_transfer_group       ON cs_transactions(transfer_group_id) WHERE transfer_group_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_swap_group           ON cs_transactions(swap_group_id)     WHERE swap_group_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_cs_sim_user          ON cs_simulations(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_import_logs_user     ON cs_import_logs(user_id);
 
--- ── Functions ────────────────────────────────────────────────────────
-CREATE OR REPLACE FUNCTION public.set_updated_at()
+-- ── Trigger: auto-update updated_at ──────────────────────────────────
+CREATE OR REPLACE FUNCTION set_updated_at()
 RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN NEW.updated_at = now(); RETURN NEW; END; $$;
 
-CREATE OR REPLACE FUNCTION public.set_user_password(p_user_id UUID, p_password TEXT)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER
-SET search_path TO 'public', 'extensions' AS $$
-BEGIN
-  UPDATE public.cs_users
-  SET password_hash = extensions.crypt(p_password, extensions.gen_salt('bf', 12))
-  WHERE id = p_user_id;
-END; $$;
-
-CREATE OR REPLACE FUNCTION public.verify_user_password(p_username TEXT, p_password TEXT)
-RETURNS TABLE(id UUID, username TEXT, name TEXT, province TEXT, role TEXT)
-LANGUAGE plpgsql SECURITY DEFINER
-SET search_path TO 'public', 'extensions' AS $$
-BEGIN
-  RETURN QUERY
-  SELECT u.id, u.username, u.name, u.province, u.role
-  FROM public.cs_users u
-  WHERE u.username = p_username
-    AND u.password_hash = extensions.crypt(p_password, u.password_hash);
-END; $$;
-
--- ── Triggers ─────────────────────────────────────────────────────────
 CREATE OR REPLACE TRIGGER trg_transactions_updated_at
-  BEFORE UPDATE ON public.cs_transactions
-  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+  BEFORE UPDATE ON cs_transactions
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
--- ── First-run instructions ────────────────────────────────────────────
--- After running this schema:
--- 1. Deploy edge-function/index.ts as a Supabase Edge Function named 'auth' (JWT OFF)
--- 2. Open frontend/cryptostack-mobile.html in your browser
--- 3. Tap "⚙ Configure Supabase Project" → enter URL + anon key
--- 4. Sign up → then in SQL Editor run:
---      UPDATE cs_users SET role = 'admin' WHERE username = 'your_username';
---      INSERT INTO cs_admin_config (key, value) VALUES ('admin_2fa_code', '123456');
--- 5. Add coins + providers via Admin panel
+-- ── Done ─────────────────────────────────────────────────────────────
+-- Next steps:
+--   1. Run: node server.js  (in the project folder)
+--   2. Open: frontend/cryptostack-mobile.html in Firefox
+--   3. Sign up, then in psql run:
+--        UPDATE cs_users SET role='admin' WHERE username='your_username';
+--        INSERT INTO cs_admin_config (key,value) VALUES ('admin_2fa_code','123456');
