@@ -5,6 +5,12 @@
 -- Run this in: psql -U postgres -d cryptostack -f schema_local.sql
 -- ============================================================
 
+-- Add this at the very top:
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+-- Optional: If you want to "reset" during development, uncomment these:
+-- DROP TABLE IF EXISTS cs_sessions, cs_transactions, cs_simulations, cs_import_logs, cs_users, cs_providers, cs_coins, cs_admin_config CASCADE;
+
 -- ── Tables ───────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS public.cs_admin_config (
