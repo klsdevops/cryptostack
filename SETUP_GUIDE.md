@@ -216,6 +216,8 @@ Enter:
 
 Click **Save & Connect** → you're taken to the login screen.
 
+**NOTE:** For the local setup with a PostgreSQL, the above steps is not needed as its not using Supabase as the database. You can skip "**PART 6 — Open the App**" and move to the "**PART 7 — Create Your Admin Account**" step.
+
 ### Browser Notes
 
 **Firefox:** Works perfectly out of the box. ✓
